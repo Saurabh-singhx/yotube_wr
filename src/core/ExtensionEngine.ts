@@ -109,6 +109,10 @@ export class ExtensionEngine {
             if (document.body) document.body.setAttribute('dark', 'true');
             document.documentElement.style.colorScheme = 'dark';
             document.cookie = "PREF=f6=400; path=/; domain=.youtube.com; max-age=31536000";
+            var initDarkStyle = document.createElement('style');
+            initDarkStyle.id = '__rn_init_dark_style__';
+            initDarkStyle.textContent = 'html, body, #app, ytm-app { background: #0f0f0f !important; color-scheme: dark !important; }';
+            (document.head || document.documentElement).appendChild(initDarkStyle);
           } else {
             document.documentElement.removeAttribute('dark');
             if (document.body) document.body.removeAttribute('dark');
@@ -169,7 +173,41 @@ export class ExtensionEngine {
   ): string {
     const matching = this.getMatchingExtensions(extensions, currentUrl);
 
-    let cssPayload = isDark
+    let cssPayload = `
+      /* Eradicate redundant mobile YouTube bottom navigation bar behind native BottomDock */
+      ytm-pivot-bar-renderer,
+      .pivot-bar,
+      ytm-pivot-bar-item-renderer {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        max-height: 0 !important;
+        pointer-events: none !important;
+      }
+
+      /* Ensure feed and browse content can scroll past the floating bottom dock */
+      ytm-app, #app, ytm-browse, .tab-content, ytm-watch {
+        padding-bottom: 76px !important;
+      }
+
+      /* Dismiss first-install consent dialogs, mealbar banners & app prompts */
+      ytm-mealbar-promo-renderer,
+      yt-mealbar-promo-renderer,
+      ytm-consent-bump-v2-renderer,
+      ytd-consent-bump-v2-lightbox,
+      #consent-bump,
+      .consent-bump,
+      ytm-app-banner,
+      .ytm-app-banner,
+      ytm-upsell-dialog-renderer,
+      .ytm-upsell-dialog-renderer {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+    ` + (isDark
       ? `
         html[dark], [dark] {
           color-scheme: dark !important;
@@ -185,7 +223,7 @@ export class ExtensionEngine {
         html:not([dark]) {
           color-scheme: light !important;
         }
-      `;
+      `);
 
     let jsEndPayload = '';
 

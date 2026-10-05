@@ -66,10 +66,17 @@ export const youtubeAdBlocker: ExtensionManifest = {
       ytd-rich-item-renderer:has(ytd-ad-slot-renderer),
       ytd-rich-item-renderer:has(ytd-in-feed-ad-layout-renderer),
       ytm-item-section-renderer[section-identifier="comment-item-section"] + ytm-promoted-sparkles-web-renderer,
-      /* YouTube Mobile "Open App" / App Banner Popups & Buttons */
+      /* YouTube Mobile "Open App" / App Banner Popups, Mealbars & Duplicate Bottom Pivot Bar */
+      ytm-pivot-bar-renderer,
+      .pivot-bar,
       ytm-open-app-button-renderer,
       .ytm-open-app-button-renderer,
-      ytm-pivot-bar-renderer ytm-open-app-button-renderer,
+      ytm-mealbar-promo-renderer,
+      yt-mealbar-promo-renderer,
+      ytm-consent-bump-v2-renderer,
+      ytd-consent-bump-v2-lightbox,
+      #consent-bump,
+      .consent-bump,
       ytm-app-banner,
       .ytm-app-banner,
       .open-app-button,
@@ -220,7 +227,8 @@ export const youtubeAdBlocker: ExtensionManifest = {
             var dismissBtn = document.querySelector(
               'tp-yt-paper-dialog #dismiss-button, ytd-enforcement-message-view-model button, #feedback-undo, ' +
               '#consent-bump button, ytd-consent-bump-v2-lightbox button, .eom-button-row button, ' +
-              'ytm-upsell-dialog-renderer button, button[aria-label*="Agree" i], button[aria-label*="Accept" i], ' +
+              'ytm-mealbar-promo-renderer button, ytm-upsell-dialog-renderer button, ' +
+              'button[aria-label*="Not now" i], button[aria-label*="Agree" i], button[aria-label*="Accept" i], ' +
               'button[aria-label*="Reject all" i], button[aria-label*="Dismiss" i]'
             );
             if (dismissBtn) {

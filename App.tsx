@@ -381,7 +381,7 @@ function MainApp() {
           setSupportMultipleWindows={false}
           textZoom={100}
           scalesPageToFit={false}
-          androidLayerType="none"
+          androidLayerType="hardware"
           mixedContentMode="always"
           originWhitelist={['*']}
           style={[styles.webView, { backgroundColor: palette.background }]}

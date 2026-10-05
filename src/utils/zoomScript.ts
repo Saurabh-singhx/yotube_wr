@@ -54,15 +54,26 @@ export function getZoomRuntimeScript(): string {
     '  opacity: 0 !important;',
     '  pointer-events: none !important;',
     '}',
-    '/* Hide 2x speedmaster press-and-hold overlay */',
+    '/* Hide 2x speedmaster press-and-hold overlay, pill, icon and bezels */',
+    '[class*="speedmaster"],',
+    '[class*="speed-master"],',
+    '[class*="speedmaster-overlay"],',
     '.ytp-speedmaster-overlay,',
     '.ytp-speedmaster,',
+    '.ytp-speedmaster-icon,',
+    '.ytp-speedmaster-text,',
+    '.ytp-speedmaster-indicator,',
     '.ytp-speed-2x,',
-    '.ytp-speedmaster-indicator {',
+    'ytm-speedmaster-renderer,',
+    'ytm-speedmaster,',
+    '.ytp-bezel[aria-label*="speed" i],',
+    '.ytp-bezel[aria-label*="2x" i],',
+    '.ytp-bezel[aria-label*="2×" i] {',
     '  display: none !important;',
     '  visibility: hidden !important;',
     '  opacity: 0 !important;',
     '  pointer-events: none !important;',
+    '  transform: scale(0) !important;',
     '}',
     '/* Hide suggested video overlay on pause */',
     '.html5-video-player .ytp-pause-overlay,',
@@ -153,9 +164,30 @@ export function getZoomRuntimeScript(): string {
     } catch(e) {}
   }
 
+  function hideSpeedmasterElements() {
+    try {
+      var speedEls = document.querySelectorAll(
+        '[class*="speedmaster"], [class*="speed-master"], [class*="speed-2x"], ' +
+        '.ytp-speedmaster-overlay, .ytp-speedmaster, .ytp-speedmaster-icon, ' +
+        '.ytp-speedmaster-text, .ytp-speedmaster-indicator, ytm-speedmaster-renderer, ' +
+        'ytm-speedmaster, .ytp-bezel[aria-label*="speed" i], .ytp-bezel[aria-label*="2x" i], ' +
+        '.ytp-bezel[aria-label*="2×" i]'
+      );
+      for (var s = 0; s < speedEls.length; s++) {
+        var el = speedEls[s];
+        el.style.setProperty('display', 'none', 'important');
+        el.style.setProperty('opacity', '0', 'important');
+        el.style.setProperty('visibility', 'hidden', 'important');
+        el.style.setProperty('pointer-events', 'none', 'important');
+        el.style.setProperty('transform', 'scale(0)', 'important');
+      }
+    } catch(e) {}
+  }
+
   // Reset playback rate if YouTube accidentally triggered press-and-hold 2x speed
   function resetPlaybackRateIf2x() {
     try {
+      hideSpeedmasterElements();
       var videos = document.querySelectorAll('video');
       for (var i = 0; i < videos.length; i++) {
         if (videos[i].playbackRate === 2.0) {
@@ -167,6 +199,7 @@ export function getZoomRuntimeScript(): string {
 
   // Intercept ratechange event to stop accidental 2x speed locks during gestures
   document.addEventListener('ratechange', function(e) {
+    hideSpeedmasterElements();
     var v = e.target;
     if (v && v.tagName === 'VIDEO') {
       if ((isPinching || hasPinched || Date.now() < suppressGestureUntil) && v.playbackRate === 2.0) {
@@ -340,8 +373,10 @@ export function getZoomRuntimeScript(): string {
 
       closeEngagementPanels();
       resetPlaybackRateIf2x();
+      hideSpeedmasterElements();
     } else if (e.touches.length === 1) {
       if (hasPinched || Date.now() < suppressClickUntil || Date.now() < suppressGestureUntil) {
+        hideSpeedmasterElements();
         if (e.cancelable) e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
@@ -449,6 +484,7 @@ export function getZoomRuntimeScript(): string {
   // Guard against YouTube's player script resetting video inline transform
   try {
     var observer = new MutationObserver(function(mutations) {
+      hideSpeedmasterElements();
       if (isPinching) return;
       if (currentScale > 1.03) {
         var videos = document.querySelectorAll('video');
