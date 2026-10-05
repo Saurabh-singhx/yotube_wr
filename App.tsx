@@ -1,11 +1,9 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
 import {
   StyleSheet,
   View,
-  StatusBar as RNStatusBar,
   BackHandler,
   Platform,
-  Animated,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -18,7 +16,7 @@ import { TopHeader } from './src/components/TopHeader';
 import { BottomDock } from './src/components/BottomDock';
 import { ExtensionsModal } from './src/components/ExtensionsModal';
 import { CustomExtensionModal } from './src/components/CustomExtensionModal';
-import { PlaybackControlsModal } from './src/components/PlaybackControlsModal';
+import { SearchModal } from './src/components/SearchModal';
 import { triggerHaptic } from './src/utils/haptics';
 
 const MOBILE_USER_AGENT =
@@ -40,14 +38,11 @@ function MainApp() {
   const [progress, setProgress] = useState(0);
 
   const [isDesktopMode, setIsDesktopMode] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
-  const [volumeBoost, setVolumeBoost] = useState(100);
-  const [isLooping, setIsLooping] = useState(false);
 
   // Modals
   const [isExtensionsModalOpen, setIsExtensionsModalOpen] = useState(false);
   const [isCustomExtensionModalOpen, setIsCustomExtensionModalOpen] = useState(false);
-  const [isPlaybackModalOpen, setIsPlaybackModalOpen] = useState(false);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
 
   // Compile extension scripts
   const injectedStartScript = useMemo(() => {
@@ -59,15 +54,15 @@ function MainApp() {
   }, [extensions, currentUrl]);
 
   // Handle hardware back button on Android
-  React.useEffect(() => {
+  useEffect(() => {
     if (Platform.OS === 'android') {
       const onBackPress = () => {
-        if (isExtensionsModalOpen) {
-          setIsExtensionsModalOpen(false);
+        if (isSearchModalOpen) {
+          setIsSearchModalOpen(false);
           return true;
         }
-        if (isPlaybackModalOpen) {
-          setIsPlaybackModalOpen(false);
+        if (isExtensionsModalOpen) {
+          setIsExtensionsModalOpen(false);
           return true;
         }
         if (isCustomExtensionModalOpen) {
@@ -84,7 +79,7 @@ function MainApp() {
       const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
       return () => subscription.remove();
     }
-  }, [canGoBack, isExtensionsModalOpen, isPlaybackModalOpen, isCustomExtensionModalOpen]);
+  }, [canGoBack, isSearchModalOpen, isExtensionsModalOpen, isCustomExtensionModalOpen]);
 
   const handleNavigate = (url: string) => {
     setCurrentUrl(url);
@@ -141,41 +136,6 @@ function MainApp() {
     }
   };
 
-  const sendPlaybackCommand = (speed: number, boost: number, loop: boolean) => {
-    const code = `
-      try {
-        window.postMessage(JSON.stringify({
-          target: 'youtube-playback-boost',
-          speed: ${speed},
-          volumeBoost: ${boost},
-          loop: ${loop}
-        }), '*');
-        var v = document.querySelector('video');
-        if (v) {
-          v.playbackRate = ${speed};
-          v.loop = ${loop};
-        }
-      } catch(e) {}
-      true;
-    `;
-    webViewRef.current?.injectJavaScript(code);
-  };
-
-  const handleSpeedChange = (newSpeed: number) => {
-    setPlaybackSpeed(newSpeed);
-    sendPlaybackCommand(newSpeed, volumeBoost, isLooping);
-  };
-
-  const handleVolumeBoostChange = (newBoost: number) => {
-    setVolumeBoost(newBoost);
-    sendPlaybackCommand(playbackSpeed, newBoost, isLooping);
-  };
-
-  const handleToggleLoop = (newLoop: boolean) => {
-    setIsLooping(newLoop);
-    sendPlaybackCommand(playbackSpeed, volumeBoost, newLoop);
-  };
-
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: palette.surface }]}
@@ -183,18 +143,16 @@ function MainApp() {
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      {/* Top Navigation Header */}
+      {/* Top Navigation Header (Clean, no search bar) */}
       <TopHeader
-        currentUrl={currentUrl}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
         isLoading={isLoading}
         onGoBack={handleGoBack}
         onGoForward={handleGoForward}
         onReload={handleReload}
-        onNavigate={handleNavigate}
+        onGoHome={handleGoHome}
         onOpenExtensions={() => setIsExtensionsModalOpen(true)}
-        onOpenPlayback={() => setIsPlaybackModalOpen(true)}
       />
 
       {/* Loading Progress Bar */}
@@ -255,15 +213,22 @@ function MainApp() {
         />
       </View>
 
-      {/* Bottom Floating Neumorphic Dock */}
+      {/* Bottom Floating Neumorphic Dock with Search icon */}
       <BottomDock
-        currentSpeed={playbackSpeed}
         isDesktopMode={isDesktopMode}
         onGoHome={handleGoHome}
-        onOpenPlayback={() => setIsPlaybackModalOpen(true)}
+        onOpenSearch={() => setIsSearchModalOpen(true)}
         onOpenExtensions={() => setIsExtensionsModalOpen(true)}
         onToggleZenMode={handleToggleZenMode}
         onToggleDesktopMode={handleToggleDesktopMode}
+      />
+
+      {/* Search Modal */}
+      <SearchModal
+        visible={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+        onSearch={handleNavigate}
+        currentUrl={currentUrl}
       />
 
       {/* Extensions Hub Modal */}
@@ -280,18 +245,6 @@ function MainApp() {
       <CustomExtensionModal
         visible={isCustomExtensionModalOpen}
         onClose={() => setIsCustomExtensionModalOpen(false)}
-      />
-
-      {/* Audio & Playback Controls Modal */}
-      <PlaybackControlsModal
-        visible={isPlaybackModalOpen}
-        onClose={() => setIsPlaybackModalOpen(false)}
-        speed={playbackSpeed}
-        volumeBoost={volumeBoost}
-        isLooping={isLooping}
-        onSpeedChange={handleSpeedChange}
-        onVolumeBoostChange={handleVolumeBoostChange}
-        onToggleLoop={handleToggleLoop}
       />
     </SafeAreaView>
   );

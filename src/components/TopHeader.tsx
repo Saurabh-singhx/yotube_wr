@@ -1,82 +1,41 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, StyleSheet, Text, Pressable, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useExtensions } from '../context/ExtensionContext';
-import { NeumorphicBox } from './neumorphic/NeumorphicBox';
 import { NeumorphicButton } from './neumorphic/NeumorphicButton';
-import { NeumorphicInput } from './neumorphic/NeumorphicInput';
 
 interface TopHeaderProps {
-  currentUrl: string;
   canGoBack: boolean;
   canGoForward: boolean;
   isLoading: boolean;
   onGoBack: () => void;
   onGoForward: () => void;
   onReload: () => void;
-  onNavigate: (url: string) => void;
+  onGoHome: () => void;
   onOpenExtensions: () => void;
-  onOpenPlayback: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
-  currentUrl,
   canGoBack,
   canGoForward,
   isLoading,
   onGoBack,
   onGoForward,
   onReload,
-  onNavigate,
+  onGoHome,
   onOpenExtensions,
 }) => {
   const { palette, isDark, toggleTheme } = useTheme();
   const { stats, extensions } = useExtensions();
-  const [isEditingUrl, setIsEditingUrl] = useState(false);
-  const [urlInput, setUrlInput] = useState(currentUrl);
-  const [prevCurrentUrl, setPrevCurrentUrl] = useState(currentUrl);
-
-  if (currentUrl !== prevCurrentUrl) {
-    setPrevCurrentUrl(currentUrl);
-    if (!isEditingUrl) {
-      setUrlInput(currentUrl);
-    }
-  }
 
   const adBlockerExt = extensions.find((e) => e.id === 'youtube-adblocker');
   const isAdBlockerActive = adBlockerExt?.enabled ?? false;
 
-  const handleSubmitUrl = () => {
-    setIsEditingUrl(false);
-    let target = urlInput.trim();
-    if (!target) return;
-
-    if (!target.startsWith('http://') && !target.startsWith('https://')) {
-      if (target.includes('.') && !target.includes(' ')) {
-        target = 'https://' + target;
-      } else {
-        // Search query on YouTube
-        target = `https://m.youtube.com/results?search_query=${encodeURIComponent(target)}`;
-      }
-    }
-    onNavigate(target);
-  };
-
-  const getCleanDomain = (url: string) => {
-    try {
-      const match = url.match(/^https?:\/\/(?:www\.|m\.)?([^\/]+)/);
-      return match ? match[1] : 'youtube.com';
-    } catch {
-      return 'youtube.com';
-    }
-  };
-
   return (
     <View style={[styles.headerContainer, { backgroundColor: palette.surface }]}>
-      {/* Top action row */}
       <View style={styles.topRow}>
-        {/* Navigation buttons */}
+        {/* Navigation buttons: Back, Forward, Reload */}
         <View style={styles.navButtonsGroup}>
           <NeumorphicButton
             onPress={onGoBack}
@@ -120,11 +79,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           />
         </View>
 
-        {/* Brand / Logo */}
-        <Pressable
-          onPress={() => onNavigate('https://m.youtube.com')}
-          style={styles.brandContainer}
-        >
+        {/* Center Brand / Logo */}
+        <Pressable onPress={onGoHome} style={styles.brandContainer}>
           <View style={[styles.brandIconWrapper, { backgroundColor: palette.primary }]}>
             <Ionicons name="play" size={14} color="#FFF" style={{ marginLeft: 2 }} />
           </View>
@@ -133,13 +89,12 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </Text>
         </Pressable>
 
-        {/* Right Action buttons */}
+        {/* Right Action buttons: AdShield badge & Theme toggle */}
         <View style={styles.actionButtonsGroup}>
-          {/* AdShield Badge Button */}
           <NeumorphicButton
             onPress={onOpenExtensions}
             size="sm"
-            style={[styles.shieldButton]}
+            style={styles.shieldButton}
             isActive={isAdBlockerActive}
             icon={
               <Ionicons
@@ -151,7 +106,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             title={stats.adsBlocked > 0 ? `${stats.adsBlocked}` : undefined}
           />
 
-          {/* Theme switcher */}
           <NeumorphicButton
             onPress={toggleTheme}
             size="sm"
@@ -166,73 +120,22 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           />
         </View>
       </View>
-
-      {/* URL / Search Bar */}
-      <View style={styles.urlRow}>
-        {isEditingUrl ? (
-          <NeumorphicInput
-            value={urlInput}
-            onChangeText={setUrlInput}
-            onSubmitEditing={handleSubmitUrl}
-            onBlur={() => setIsEditingUrl(false)}
-            autoFocus
-            selectTextOnFocus
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            returnKeyType="go"
-            leftIcon={<Ionicons name="search" size={16} color={palette.accent} />}
-            onClear={() => setUrlInput('')}
-            containerStyle={styles.urlInputContainer}
-          />
-        ) : (
-          <Pressable
-            onPress={() => setIsEditingUrl(true)}
-            style={styles.urlDisplayPressable}
-          >
-            <NeumorphicBox state="inset" borderRadius={14} style={styles.urlDisplayBox}>
-              <View style={styles.urlContent}>
-                <Ionicons
-                  name={currentUrl.startsWith('https') ? 'lock-closed' : 'globe-outline'}
-                  size={14}
-                  color={palette.success}
-                  style={styles.urlLockIcon}
-                />
-                <Text
-                  style={[styles.domainText, { color: palette.textPrimary }]}
-                  numberOfLines={1}
-                >
-                  {getCleanDomain(currentUrl)}
-                </Text>
-                <Text
-                  style={[styles.pathText, { color: palette.textMuted }]}
-                  numberOfLines={1}
-                >
-                  {currentUrl.replace(/^https?:\/\/[^\/]+/, '') || '/'}
-                </Text>
-              </View>
-              <Ionicons name="search-outline" size={16} color={palette.textMuted} />
-            </NeumorphicBox>
-          </Pressable>
-        )}
-      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   headerContainer: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingTop: Platform.OS === 'android' ? 10 : 6,
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
+    borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
   },
   navButtonsGroup: {
     flexDirection: 'row',
@@ -240,11 +143,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   circleBtn: {
-    minWidth: 34,
-    minHeight: 34,
+    minWidth: 36,
+    minHeight: 36,
     paddingHorizontal: 0,
     paddingVertical: 0,
-    borderRadius: 17,
+    borderRadius: 18,
   },
   brandContainer: {
     flexDirection: 'row',
@@ -252,15 +155,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   brandIconWrapper: {
-    width: 22,
-    height: 18,
+    width: 24,
+    height: 20,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 6,
   },
   brandText: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '800',
     letterSpacing: -0.5,
   },
@@ -270,45 +173,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   shieldButton: {
-    minHeight: 34,
+    minHeight: 36,
     paddingHorizontal: 10,
     paddingVertical: 0,
-    borderRadius: 17,
-  },
-  urlRow: {
-    width: '100%',
-  },
-  urlDisplayPressable: {
-    width: '100%',
-  },
-  urlDisplayBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minHeight: 38,
-  },
-  urlContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 8,
-  },
-  urlLockIcon: {
-    marginRight: 6,
-  },
-  domainText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  pathText: {
-    fontSize: 12,
-    flex: 1,
-    marginLeft: 2,
-  },
-  urlInputContainer: {
-    minHeight: 38,
-    paddingVertical: 0,
+    borderRadius: 18,
   },
 });

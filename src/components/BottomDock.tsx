@@ -7,20 +7,18 @@ import { NeumorphicBox } from './neumorphic/NeumorphicBox';
 import { NeumorphicButton } from './neumorphic/NeumorphicButton';
 
 interface BottomDockProps {
-  currentSpeed: number;
   isDesktopMode: boolean;
   onGoHome: () => void;
-  onOpenPlayback: () => void;
+  onOpenSearch: () => void;
   onOpenExtensions: () => void;
   onToggleZenMode: () => void;
   onToggleDesktopMode: () => void;
 }
 
 export const BottomDock: React.FC<BottomDockProps> = ({
-  currentSpeed,
   isDesktopMode,
   onGoHome,
-  onOpenPlayback,
+  onOpenSearch,
   onOpenExtensions,
   onToggleZenMode,
   onToggleDesktopMode,
@@ -41,7 +39,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
         style={[styles.dockBox, { backgroundColor: palette.surfaceElevated }]}
       >
         <View style={styles.dockRow}>
-          {/* Home */}
+          {/* 1. Home */}
           <NeumorphicButton
             onPress={onGoHome}
             size="sm"
@@ -49,23 +47,15 @@ export const BottomDock: React.FC<BottomDockProps> = ({
             icon={<Ionicons name="home" size={20} color={palette.textPrimary} />}
           />
 
-          {/* Audio & Speed Booster Modal */}
+          {/* 2. Search YouTube / Enter URL */}
           <NeumorphicButton
-            onPress={onOpenPlayback}
+            onPress={onOpenSearch}
             size="sm"
-            style={[styles.dockItem, currentSpeed !== 1.0 && styles.activeItem]}
-            isActive={currentSpeed !== 1.0}
-            icon={
-              <Ionicons
-                name="speedometer"
-                size={18}
-                color={currentSpeed !== 1.0 ? palette.accent : palette.textPrimary}
-              />
-            }
-            title={`${currentSpeed}x`}
+            style={styles.dockItem}
+            icon={<Ionicons name="search" size={20} color={palette.accent} />}
           />
 
-          {/* Zen Distraction-Free Toggle */}
+          {/* 3. Zen Distraction-Free Toggle */}
           <NeumorphicButton
             onPress={onToggleZenMode}
             size="sm"
@@ -80,7 +70,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
             }
           />
 
-          {/* Desktop / Mobile Switch */}
+          {/* 4. Desktop / Mobile Switch */}
           <NeumorphicButton
             onPress={onToggleDesktopMode}
             size="sm"
@@ -95,12 +85,12 @@ export const BottomDock: React.FC<BottomDockProps> = ({
             }
           />
 
-          {/* Extension Manager */}
+          {/* 5. Extension Manager */}
           <NeumorphicButton
             onPress={onOpenExtensions}
             size="sm"
             style={styles.dockItem}
-            icon={<Ionicons name="extension-puzzle" size={19} color={palette.accent} />}
+            icon={<Ionicons name="extension-puzzle" size={19} color={palette.textPrimary} />}
             badge={activeExtensionsCount}
           />
         </View>
@@ -119,19 +109,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dockBox: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 28,
   },
   dockRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   dockItem: {
-    minWidth: 42,
-    minHeight: 42,
-    borderRadius: 21,
+    minWidth: 44,
+    minHeight: 44,
+    borderRadius: 22,
     paddingHorizontal: 10,
   },
   activeItem: {
