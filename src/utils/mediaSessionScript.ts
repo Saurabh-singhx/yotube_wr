@@ -320,14 +320,14 @@ export function getMediaObserverScript(): string {
           if (video.muted) {
             video.muted = false;
           }
-          if (typeof video.volume === 'number' && video.volume < 1) {
+          if (typeof video.volume === 'number' && video.volume === 0) {
             video.volume = 1.0;
           }
           if (player) {
             if (typeof player.isMuted === 'function' && player.isMuted()) {
               if (typeof player.unMute === 'function') player.unMute();
             }
-            if (typeof player.getVolume === 'function' && player.getVolume() < 100) {
+            if (typeof player.getVolume === 'function' && player.getVolume() === 0) {
               if (typeof player.setVolume === 'function') player.setVolume(100);
             }
           }
@@ -347,9 +347,11 @@ export function getMediaObserverScript(): string {
         var events = ['play', 'playing', 'pause', 'ended', 'timeupdate', 'loadedmetadata', 'ratechange'];
         events.forEach(function(ev) {
           video.addEventListener(ev, function() {
-            if (ev === 'play' || ev === 'playing' || (ev === 'timeupdate' && !video.paused)) {
+            if (ev === 'play' || ev === 'playing') {
               window.__userWantsPaused = false;
               unmuteAudio(video);
+            } else if (ev === 'timeupdate' && !video.paused) {
+              window.__userWantsPaused = false;
             }
             reportMediaState(video, ev !== 'timeupdate');
           });
@@ -420,10 +422,10 @@ export function getRemoteControlScript(action: string, position?: number): strin
             if (video) {
               try {
                 if (video.muted) video.muted = false;
-                if (typeof video.volume === 'number' && video.volume < 1) video.volume = 1.0;
+                if (typeof video.volume === 'number' && video.volume === 0) video.volume = 1.0;
                 var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-                if (p && typeof p.unMute === 'function') p.unMute();
-                if (p && typeof p.setVolume === 'function') p.setVolume(100);
+                if (p && typeof p.isMuted === 'function' && p.isMuted()) p.unMute();
+                if (p && typeof p.getVolume === 'function' && p.getVolume() === 0) p.setVolume(100);
               } catch(e) {}
             }
             if (typeof actions['play'] === 'function') {
