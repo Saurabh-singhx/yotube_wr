@@ -51,4 +51,14 @@ describe('zoomScript utility', () => {
     expect(script).toContain("showToast('Zoomed to fill')");
     expect(script).toContain("showToast('Original')");
   });
+
+  it('provides programmatic player fullscreen enter, exit, and state detection methods', () => {
+    const script = getZoomRuntimeScript();
+    expect(script).toContain('__enterPlayerFullscreen');
+    expect(script).toContain('__exitPlayerFullscreen');
+    expect(script).toContain('__isPlayerInFullscreen');
+    expect(script).toContain('function isPlayerInFullscreen()');
+    expect(script).toContain('function enterPlayerFullscreen()');
+    expect(script).toContain('function exitPlayerFullscreen()');
+  });
 });

@@ -331,14 +331,91 @@ export function getZoomRuntimeScript(): string {
 
   window.__applyVideoZoom = applyZoom;
 
-  // Track Fullscreen state natively via browser fullscreen events
-  function handleFullscreenChange() {
-    var isFS = !!(
+  // Check if player is currently in fullscreen via HTML5 API, player CSS classes, or button state
+  function isPlayerInFullscreen() {
+    if (
       document.fullscreenElement ||
       document.webkitFullscreenElement ||
       document.mozFullScreenElement ||
       document.msFullscreenElement
-    );
+    ) {
+      return true;
+    }
+    var player = document.getElementById('movie_player') ||
+                 document.getElementById('player') ||
+                 document.querySelector('.html5-video-player');
+    if (player && (player.classList.contains('fullscreen-mode') || player.classList.contains('fullscreen'))) {
+      return true;
+    }
+    var exitBtn = document.querySelector('button[aria-label*="Exit full screen" i], button[aria-label*="Exit fullscreen" i]');
+    if (exitBtn) {
+      return true;
+    }
+    return false;
+  }
+
+  // Programmatically trigger YouTube in-player fullscreen
+  function enterPlayerFullscreen() {
+    try {
+      if (isPlayerInFullscreen()) return;
+      var video = document.querySelector('video');
+      if (!video) return;
+
+      var fsBtn = document.querySelector(
+        '.ytp-fullscreen-button, button[aria-label*="Full screen" i], button[aria-label*="fullscreen" i]'
+      );
+      if (fsBtn) {
+        fsBtn.click();
+        setTimeout(handleFullscreenChange, 120);
+        return;
+      }
+
+      var player = document.getElementById('movie_player') ||
+                   document.getElementById('player') ||
+                   document.querySelector('.html5-video-player');
+      if (player) {
+        if (typeof player.requestFullscreen === 'function') {
+          player.requestFullscreen().catch(function(){});
+        } else if (typeof player.webkitRequestFullscreen === 'function') {
+          player.webkitRequestFullscreen();
+        }
+      } else if (typeof video.webkitRequestFullscreen === 'function') {
+        video.webkitRequestFullscreen();
+      }
+      setTimeout(handleFullscreenChange, 120);
+    } catch(e) {}
+  }
+
+  // Programmatically exit YouTube in-player fullscreen
+  function exitPlayerFullscreen() {
+    try {
+      var exitBtn = document.querySelector(
+        '.ytp-fullscreen-button, button[aria-label*="Exit full screen" i], button[aria-label*="Exit fullscreen" i]'
+      );
+      if (exitBtn) {
+        exitBtn.click();
+        setTimeout(handleFullscreenChange, 120);
+        return;
+      }
+
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        if (typeof document.exitFullscreen === 'function') {
+          document.exitFullscreen().catch(function(){});
+        } else if (typeof document.webkitExitFullscreen === 'function') {
+          document.webkitExitFullscreen();
+        }
+      }
+      setTimeout(handleFullscreenChange, 120);
+    } catch(e) {}
+  }
+
+  window.__isPlayerInFullscreen = isPlayerInFullscreen;
+  window.__enterPlayerFullscreen = enterPlayerFullscreen;
+  window.__exitPlayerFullscreen = exitPlayerFullscreen;
+
+  // Track Fullscreen state natively via browser fullscreen events, player classes, and button changes
+  function handleFullscreenChange() {
+    var isFS = isPlayerInFullscreen();
     if (window.__RN_EXTENSION_BRIDGE__) {
       window.__RN_EXTENSION_BRIDGE__.send('youtube-fullscreen', 'FULLSCREEN_CHANGE', {
         isFullscreen: isFS
@@ -351,6 +428,32 @@ export function getZoomRuntimeScript(): string {
 
   document.addEventListener('fullscreenchange', handleFullscreenChange, true);
   document.addEventListener('webkitfullscreenchange', handleFullscreenChange, true);
+
+  // Monitor clicks on fullscreen buttons
+  document.addEventListener('click', function(e) {
+    try {
+      var target = e.target;
+      if (target && target.closest && target.closest('.ytp-fullscreen-button, button[aria-label*="full screen" i], button[aria-label*="fullscreen" i]')) {
+        setTimeout(handleFullscreenChange, 100);
+        setTimeout(handleFullscreenChange, 350);
+      }
+    } catch(_) {}
+  }, true);
+
+  // Monitor player class changes (e.g. fullscreen-mode added/removed)
+  try {
+    var fsObserver = new MutationObserver(function() {
+      handleFullscreenChange();
+    });
+    var playerObsTarget = document.getElementById('player') ||
+                          document.getElementById('movie_player') ||
+                          document.querySelector('.html5-video-player') ||
+                          document.documentElement;
+    fsObserver.observe(playerObsTarget, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+  } catch(_) {}
 
   function getDistance(t1, t2) {
     var dx = t1.clientX - t2.clientX;

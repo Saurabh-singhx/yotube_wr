@@ -152,6 +152,131 @@ function MainApp() {
 
   // Fullscreen tracking for in-page YouTube player
   const [isWebFullscreen, setIsWebFullscreen] = useState(false);
+  const userExitedFullscreenInLandscapeRef = useRef(false);
+  const prevIsLandscapeRef = useRef(isLandscape);
+
+  // Automatic Fullscreen Transition on Device Rotation (Mirroring Native YouTube Behavior)
+  useEffect(() => {
+    const prevIsLandscape = prevIsLandscapeRef.current;
+    prevIsLandscapeRef.current = isLandscape;
+
+    // Do not auto-toggle fullscreen if any modal or PiP player is active
+    if (
+      isSettingsModalOpen ||
+      isSearchModalOpen ||
+      isExtensionsModalOpen ||
+      isCustomExtensionModalOpen ||
+      pipVideoId
+    ) {
+      return;
+    }
+
+    const hasActiveVideo = !!(
+      extractVideoId(currentUrl) ||
+      lastVideoIdRef.current ||
+      currentUrl.includes('/watch') ||
+      isVideoPlaying
+    );
+
+    if (isLandscape && !prevIsLandscape) {
+      // Rotated into Landscape: auto-enter fullscreen if a video is active and not manually exited
+      if (hasActiveVideo && !isWebFullscreen && !userExitedFullscreenInLandscapeRef.current) {
+        const timer = setTimeout(() => {
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript(`
+              (function() {
+                if (typeof window.__enterPlayerFullscreen === 'function') {
+                  window.__enterPlayerFullscreen();
+                } else {
+                  var fsBtn = document.querySelector('.ytp-fullscreen-button, button[aria-label*="Full screen" i], button[aria-label*="fullscreen" i]');
+                  if (fsBtn) fsBtn.click();
+                }
+              })();
+              true;
+            `);
+          }
+        }, 180);
+        return () => clearTimeout(timer);
+      }
+    } else if (!isLandscape && prevIsLandscape) {
+      // Rotated back into Portrait: reset manual exit flag and auto-restore normal view
+      userExitedFullscreenInLandscapeRef.current = false;
+
+      if (isWebFullscreen) {
+        if (webViewRef.current) {
+          webViewRef.current.injectJavaScript(`
+            (function() {
+              if (typeof window.__exitPlayerFullscreen === 'function') {
+                window.__exitPlayerFullscreen();
+              } else {
+                var exitBtn = document.querySelector('.ytp-fullscreen-button, button[aria-label*="Exit full screen" i], button[aria-label*="Exit fullscreen" i]');
+                if (exitBtn) {
+                  exitBtn.click();
+                } else if (document.exitFullscreen) {
+                  document.exitFullscreen().catch(function(){});
+                } else if (document.webkitExitFullscreen) {
+                  document.webkitExitFullscreen();
+                }
+              }
+            })();
+            true;
+          `);
+        }
+        setIsWebFullscreen(false);
+      }
+    }
+  }, [
+    isLandscape,
+    currentUrl,
+    isVideoPlaying,
+    isWebFullscreen,
+    isSettingsModalOpen,
+    isSearchModalOpen,
+    isExtensionsModalOpen,
+    isCustomExtensionModalOpen,
+    pipVideoId,
+  ]);
+
+  // If a video starts playing while ALREADY in landscape, auto-enter fullscreen (unless manually exited)
+  useEffect(() => {
+    if (
+      isLandscape &&
+      isVideoPlaying &&
+      !isWebFullscreen &&
+      !userExitedFullscreenInLandscapeRef.current &&
+      !isSettingsModalOpen &&
+      !isSearchModalOpen &&
+      !isExtensionsModalOpen &&
+      !isCustomExtensionModalOpen &&
+      !pipVideoId
+    ) {
+      const timer = setTimeout(() => {
+        if (webViewRef.current) {
+          webViewRef.current.injectJavaScript(`
+            (function() {
+              if (typeof window.__enterPlayerFullscreen === 'function') {
+                window.__enterPlayerFullscreen();
+              } else {
+                var fsBtn = document.querySelector('.ytp-fullscreen-button, button[aria-label*="Full screen" i], button[aria-label*="fullscreen" i]');
+                if (fsBtn) fsBtn.click();
+              }
+            })();
+            true;
+          `);
+        }
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+  }, [
+    isVideoPlaying,
+    isLandscape,
+    isWebFullscreen,
+    isSettingsModalOpen,
+    isSearchModalOpen,
+    isExtensionsModalOpen,
+    isCustomExtensionModalOpen,
+    pipVideoId,
+  ]);
 
   // Handle hardware back button on Android
   useEffect(() => {
@@ -181,18 +306,25 @@ function MainApp() {
         if (isWebFullscreen && webViewRef.current) {
           webViewRef.current.injectJavaScript(`
             (function() {
-              var exitBtn = document.querySelector('.ytp-fullscreen-button, button[aria-label*="Exit full screen" i]');
-              if (exitBtn) {
-                exitBtn.click();
-              } else if (document.exitFullscreen) {
-                document.exitFullscreen();
-              } else if (document.webkitExitFullscreen) {
-                document.webkitExitFullscreen();
+              if (typeof window.__exitPlayerFullscreen === 'function') {
+                window.__exitPlayerFullscreen();
+              } else {
+                var exitBtn = document.querySelector('.ytp-fullscreen-button, button[aria-label*="Exit full screen" i], button[aria-label*="Exit fullscreen" i]');
+                if (exitBtn) {
+                  exitBtn.click();
+                } else if (document.exitFullscreen) {
+                  document.exitFullscreen().catch(function(){});
+                } else if (document.webkitExitFullscreen) {
+                  document.webkitExitFullscreen();
+                }
               }
             })();
             true;
           `);
           setIsWebFullscreen(false);
+          if (isLandscape) {
+            userExitedFullscreenInLandscapeRef.current = true;
+          }
           return true;
         }
         if (canGoBack && webViewRef.current) {
@@ -315,7 +447,7 @@ function MainApp() {
       ]}
       edges={isLandscape ? [] : ['top', 'left', 'right']}
     >
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <StatusBar style={isDark ? 'light' : 'dark'} hidden={isLandscape && isWebFullscreen} />
 
       {/* Loading Progress Bar */}
       {isLoading && progress < 1 && (
@@ -355,7 +487,11 @@ function MainApp() {
             const msg = ExtensionEngine.parseBridgeMessage(rawData);
             if (msg) {
               if (msg.extensionId === 'youtube-fullscreen' && msg.type === 'FULLSCREEN_CHANGE') {
-                setIsWebFullscreen(Boolean(msg.payload?.isFullscreen));
+                const isFS = Boolean(msg.payload?.isFullscreen);
+                setIsWebFullscreen(isFS);
+                if (!isFS && isLandscape) {
+                  userExitedFullscreenInLandscapeRef.current = true;
+                }
                 return;
               }
               if (msg.extensionId === 'media-session') {
@@ -387,6 +523,9 @@ function MainApp() {
               setCurrentUrl(navState.url);
               const vid = extractVideoId(navState.url);
               if (vid) {
+                if (vid !== lastVideoIdRef.current) {
+                  userExitedFullscreenInLandscapeRef.current = false;
+                }
                 lastVideoIdRef.current = vid;
               } else {
                 setIsVideoPlaying(false);
