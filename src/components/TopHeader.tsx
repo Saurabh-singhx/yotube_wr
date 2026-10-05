@@ -13,6 +13,7 @@ interface TopHeaderProps {
   onGoHome: () => void;
   onOpenExtensions: () => void;
   onToggleTheme?: () => void;
+  onToggleZenMode?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -23,12 +24,16 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onGoHome,
   onOpenExtensions,
   onToggleTheme,
+  onToggleZenMode,
 }) => {
   const { palette, isDark, toggleTheme } = useTheme();
   const { stats, extensions } = useExtensions();
 
   const adBlockerExt = extensions.find((e) => e.id === 'youtube-adblocker');
   const isAdBlockerActive = adBlockerExt?.enabled ?? false;
+
+  const zenExt = extensions.find((e) => e.id === 'youtube-distraction-free');
+  const isZenActive = zenExt?.enabled ?? false;
 
   return (
     <View style={[styles.headerContainer, { backgroundColor: palette.surface }]}>
@@ -89,7 +94,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </Text>
         </Pressable>
 
-        {/* Right Actions: Shield Badge & Theme Switcher */}
+        {/* Right Actions: Shield Badge, Zen Toggle & Theme Switcher */}
         <View style={styles.actionButtonsGroup}>
           <NeumorphicButton
             onPress={onOpenExtensions}
@@ -105,6 +110,22 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             }
             title={stats.adsBlocked > 0 ? `${stats.adsBlocked}` : undefined}
           />
+
+          {onToggleZenMode && (
+            <NeumorphicButton
+              onPress={onToggleZenMode}
+              size="sm"
+              style={styles.circleBtn}
+              isActive={isZenActive}
+              icon={
+                <Ionicons
+                  name="leaf"
+                  size={17}
+                  color={isZenActive ? palette.success : palette.textPrimary}
+                />
+              }
+            />
+          )}
 
           <NeumorphicButton
             onPress={onToggleTheme || toggleTheme}

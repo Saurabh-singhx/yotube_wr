@@ -1,6 +1,6 @@
 # YouTube_wr — Architecture & Technical Design Document
 
-> **Document Version:** 1.3.0  
+> **Document Version:** 1.4.0  
 > **Status:** Active / Living Document  
 > **Last Updated:** October 2026  
 > **Maintainer:** YouTube_wr Engineering Team  
@@ -9,11 +9,12 @@
 
 ## 1. Executive Summary & Philosophy
 
-`YouTube_wr` is a modern mobile YouTube client designed to combine the flexibility of YouTube's web platform with native mobile enhancements:
+`YouTube_wr` is a modern mobile YouTube & WebApp client designed to combine the flexibility of YouTube's web platform with native mobile enhancements:
 1. **Uncompromised Ad & Tracker Blocking:** Complete removal of video pre-roll/mid-roll ads, sponsored feed banners, search ads, and Google telemetry without black screen stalls or playback freezes.
-2. **Pluggable Extension Architecture:** A modular, Userscript-inspired extension engine that allows both pre-compiled and user-defined scripts/styles to run seamlessly in the web sandbox.
-3. **Tactile Neumorphic (Soft UI) Interface:** A cohesive visual design language employing dual-light elevation, concave pressed states, and spring-driven controls that deliver a unique tactile feel.
-4. **Resilience to YouTube Web Changes:** By separating UI customization, script injection, and native controls into decoupled layers, upstream YouTube DOM updates can be accommodated simply by updating extension rules rather than rebuilding the entire native binary.
+2. **Multi-WebApp & Browser Hub:** One-tap switching to other popular webapps (Instagram, Twitter/X, Reddit, TikTok, Twitch, etc.) or arbitrary URLs with Google/YouTube search support.
+3. **Picture-in-Picture (PiP) Floating Miniplayer:** Continuous background video playback in a floating Neumorphic miniplayer while browsing other webapps or navigating feeds.
+4. **Pluggable Extension Architecture:** A modular, Userscript-inspired extension engine that allows both pre-compiled and user-defined scripts/styles to run seamlessly in the web sandbox.
+5. **Tactile Neumorphic (Soft UI) Interface:** A cohesive visual design language employing dual-light elevation, concave pressed states, and spring-driven controls that deliver a unique tactile feel.
 
 ---
 
@@ -23,9 +24,9 @@
 | :--- | :--- | :--- |
 | **Framework** | **Expo SDK 57 / React Native 0.86** | Provides high-performance Continuous Native Generation (CNG), cross-platform mobile rendering, and access to modern native hardware APIs (Haptics, Status Bar, Safe Area) without Xcode/Android Studio manual configuration overhead. |
 | **Language** | **TypeScript 5.x / 6.x (Strict)** | Guarantees type safety across extension manifests, setting schemas, bridge events, and neumorphic style contracts. |
-| **Browser Engine** | **`react-native-webview` (v13.x)** | Chosen over building a custom Chromium/Gecko fork (which would add ~150MB to app size and face severe App Store rejections) and over native video players (which frequently break when YouTube alters stream cipher signatures). WebViews receive native platform hardware acceleration (`androidLayerType="hardware"`), full HTML5 video support, and two-way script injection capabilities. |
-| **Design Language** | **Neumorphism (Soft UI)** | Chosen over standard Material or Flat design to provide an elevated, modern tactile experience suited for audio/video media controls (e.g., sunken inputs, extruded knobs, tactile haptic toggles). |
-| **Storage Engine** | **`@react-native-async-storage`** | Lightweight, key-value asynchronous storage without native database dependencies (SQLite/Realm), ideal for saving extension manifests, user configurations, theme preferences, and ad-blocking statistics. |
+| **Browser Engine** | **`react-native-webview` (v13.x)** | Chosen over custom Chromium/Gecko forks (~150MB overhead) and native video players (cipher breakage). WebViews receive native platform hardware acceleration (`androidLayerType="hardware"`), full HTML5 video support, and two-way script injection capabilities. |
+| **Design Language** | **Neumorphism (Soft UI)** | Chosen over standard Material or Flat design to provide an elevated, modern tactile experience suited for audio/video media controls. |
+| **Storage Engine** | **`@react-native-async-storage`** | Lightweight, key-value asynchronous storage for saving extension manifests, user configurations, theme preferences, and ad-blocking statistics. |
 | **Haptics** | **`expo-haptics`** | Provides tactile feedback on button presses, search actions, and switch toggles, enhancing the neumorphic physical feel. |
 
 ---
@@ -37,11 +38,11 @@
 │                        React Native Application Layer                   │
 │                                                                        │
 │   ┌───────────────────────┐  ┌─────────────────────────────────────┐  │
-│   │   TopHeader (Nav/Logo)│  │   BottomDock (Home, Search, Zen)    │  │
+│   │   TopHeader (Nav/Logo)│  │   BottomDock (Home, WebApps, PiP)   │  │
 │   └───────────┬───────────┘  └──────────────────┬──────────────────┘  │
 │               │                                 │                      │
 │   ┌───────────▼─────────────────────────────────▼──────────────────┐  │
-│   │        ExtensionContext & ThemeContext State Manager            │  │
+│   │         ExtensionContext & ThemeContext State Manager           │  │
 │   │   • Extension Registry  • Settings  • AdBlock Stats  • Theme    │  │
 │   └───────────┬─────────────────────────────────┬──────────────────┘  │
 │               │                                 │                      │
@@ -51,26 +52,13 @@
 │   │  • CSS Builder        │         │  • Custom userscripts        │  │
 │   │  • Bridge Dispatcher  │         │  • Live blocking statistics  │  │
 │   └───────────┬───────────┘         └──────────────────────────────┘  │
-└───────────────┼────────────────────────────────────────────────────────┘
-                │ Injected Scripts & CSS / PostMessage Bridge
-┌───────────────▼────────────────────────────────────────────────────────┐
-│                      WebView Execution Sandbox                         │
-│                                                                        │
-│   ┌────────────────────────────────────────────────────────────────┐   │
-│   │  Document Start: window.__RN_EXTENSION_BRIDGE__                │   │
-│   │  • Clean window environment without fetch monkey-patching      │   │
-│   │  • Early documentElement theme attribute & cookie injection    │   │
-│   │  • Pre-seeded HD player quality local storage                  │   │
-│   └────────────────────────────────┬───────────────────────────────┘   │
-│                                    │                                   │
-│   ┌────────────────────────────────▼───────────────────────────────┐   │
-│   │  DOM / Content Ready: Style & Script Runner                    │   │
-│   │  • Non-destructive CSS rules (<style id="__rn_extension_styles__">)│
-│   │  • Bulletproof Video Ad Skipper (Fast-forward, skip, unmute)   │   │
-│   │  • Auto HD Max Resolution Enforcer (Quality locking engine)    │   │
-│   │  • Zen Focus (Shorts & comments blocker)                       │   │
-│   │  • SPA Hook: Re-apply on 'yt-navigate-finish' & MutationObserver│
-│   └────────────────────────────────────────────────────────────────┘   │
+│               │                                                        │
+│               ├─────────────────────────────────┐                      │
+│               │                                 │                      │
+│   ┌───────────▼───────────┐         ┌───────────▼──────────────────┐  │
+│   │    Primary WebView    │         │  Floating PiP Miniplayer     │  │
+│   │ (YouTube / Instagram) │         │   (Uninterrupted Video)      │  │
+│   └───────────────────────┘         └──────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -100,15 +88,52 @@ Through deep debugging across YouTube's web client and leading adblock mechanism
 
 ---
 
-## 5. Video Playback Continuity & Auto High Quality (Auto HD)
+## 5. WebApps & Multi-Origin Browser Hub
+
+### The WebApps Switcher (`src/components/SearchModal.tsx`)
+Users can seamlessly switch between YouTube and other modern web applications:
+* **Featured 1-Tap WebApps Grid:**
+  - **Instagram:** `https://www.instagram.com`
+  - **X (Twitter):** `https://x.com`
+  - **Reddit:** `https://www.reddit.com`
+  - **TikTok:** `https://www.tiktok.com`
+  - **Twitch:** `https://m.twitch.tv`
+  - **Google:** `https://www.google.com`
+  - **GitHub:** `https://github.com`
+  - **SoundCloud:** `https://m.soundcloud.com`
+  - **YouTube:** `https://m.youtube.com`
+* **Address Bar & Dual Actions:**
+  - Automatic URL recognition (`instagram.com` -> `https://instagram.com`).
+  - Search queries offer both **"Search Google"** and **"Search YouTube"** shortcuts.
+* **Architecture Fix for Multi-Origin Navigation:**
+  - In `App.tsx`, `activeSourceUri` updates the `<WebView source={{ uri: activeSourceUri }}>` prop on user-driven navigation, allowing the native WebView to switch to third-party domains directly without CSP restrictions.
+
+---
+
+## 6. Picture-in-Picture (PiP) Floating Miniplayer
+
+### Architecture (`src/components/PipPlayer.tsx`)
+When a user is watching a YouTube video and wants to browse Instagram, Reddit, or other web content:
+1. **Automatic PiP on WebApp Switch:**
+   - Navigating to an external webapp automatically extracts the active video ID and launches the floating `PipPlayer`.
+2. **Dedicated PiP Dock Button:**
+   - The BottomDock features a dedicated **PiP Toggle (`tv`)** button to immediately float the current video.
+3. **Controls & Gestures:**
+   - **Floating Neumorphic Window:** Positioned above the dock with elevation shadow and rounded corners.
+   - **Expand (`⤢`):** Closes the PiP window and restores the video full-size in the primary WebView.
+   - **Close (`✕`):** Dismisses the miniplayer.
+
+---
+
+## 7. Video Playback Continuity & Auto High Quality (Auto HD)
 
 ### The "Video Restart on In-Page Modals" Bug Resolved
 * **The Root Cause:**
   When a user opens YouTube in-page dialogs (e.g., Settings, Quality, Playback Speed, Comments, Share, or Description), YouTube mobile web calls `history.pushState(null, '', '#...')`.
-  `onNavigationStateChange` in `react-native-webview` captured this new URL and passed it to `setCurrentUrl(navState.url)`. Because the `<WebView source={{ uri: currentUrl }}>` prop was bound directly to this state variable, React Native updated the `source` prop, causing Android's `RNCWebViewManager` to call native `view.loadUrl(newUrl)`. This forced a full webpage reload and restarted the video from `0:00`.
+  `onNavigationStateChange` in `react-native-webview` captured this new URL and passed it to `setCurrentUrl(navState.url)`. Because `<WebView source={{ uri: currentUrl }}>` was bound directly to this state variable, React Native updated the `source` prop, causing Android's `RNCWebViewManager` to call native `view.loadUrl(newUrl)`. This forced a full webpage reload and restarted the video from `0:00`.
 * **The Architecture Fix:**
-  1. `<WebView source={webViewSource}>` now references a memoized object that only changes on deliberate top-level user actions (Home button, Search submission, or Desktop Mode toggle).
-  2. `currentUrl` is updated strictly for UI tracking (e.g., Search Modal pre-fill) and is completely decoupled from the WebView's active `source` prop.
+  1. `<WebView source={webViewSource}>` now references a memoized object that only changes on deliberate top-level user actions (Home button, WebApps Hub navigation, or Desktop Mode toggle).
+  2. `currentUrl` is updated strictly for UI tracking and is completely decoupled from the WebView's active `source` prop during in-page navigation.
   3. `injectedStartScript` and `injectedEndScript` are memoized on `[extensions, isDark]` rather than `currentUrl`, eliminating script re-evaluations during in-page navigation.
 
 ### Always High Quality (Auto HD) Extension (`src/core/extensions/youtubeAutoHD.ts`)
@@ -120,7 +145,7 @@ Through deep debugging across YouTube's web client and leading adblock mechanism
 
 ---
 
-## 6. UI/UX & Neumorphic Architecture
+## 8. UI/UX & Neumorphic Architecture
 
 ### Stable View Hierarchy & Gesture Responsiveness
 In previous implementations, `NeumorphicBox` toggled between a dual-view hierarchy when `elevated` and a single-view hierarchy when `pressed`. When a user touched a `NeumorphicButton`, React Native's gesture responder tree changed dynamically mid-touch, causing the `Pressable` to cancel the active gesture and silently drop `onPress`.
@@ -133,23 +158,20 @@ In previous implementations, `NeumorphicBox` toggled between a dual-view hierarc
 
 ### Streamlined Navigation Layout
 * **Top Header (`src/components/TopHeader.tsx`):**
-  - Removed clunky search bar from top to maximize web view real estate.
-  - Multi-layer navigation fallback: executes both native `webViewRef.current.goBack()` and in-page `window.history.back()` to reliably support YouTube Single Page Application (SPA) routing.
-  - Quick access to Protection Overview and Dark/Light theme toggle.
+  - Left: Back (`<`), Forward (`>`), and Reload (`↻`).
+  - Center: `YT_wr` brand logo (tap to navigate Home).
+  - Right: Live AdShield Protection counter, Zen Focus toggle (`leaf`), and Dark/Light theme toggle.
 * **Bottom Dock (`src/components/BottomDock.tsx`):**
   - High-depth floating pill housing 5 evenly-spaced 46x46 circular tactile buttons:
     1. **Home:** Instant return to YouTube home feed.
-    2. **Search:** Opens the Neumorphic Search Modal.
-    3. **Zen Focus:** Distraction-free mode toggle (Shorts, comments, recommendations).
-    4. **Desktop / Mobile:** Switches User-Agent between desktop and mobile formats.
-    5. **Extensions Hub:** Displays active badge count; opens extensions manager and custom script builder.
-* **Search Modal (`src/components/SearchModal.tsx`):**
-  - Features quick topic chips (`Trending`, `Music`, `Gaming`, `Podcasts`, `Lofi Chill`, `Tech Reviews`).
-  - Supports search queries and direct URL navigation with `KeyboardAvoidingView`.
+    2. **WebApps Hub (`globe`):** Opens WebApps & Browser Switcher (Instagram, Reddit, X, TikTok, etc.).
+    3. **PiP Miniplayer (`tv`):** Toggles floating Picture-in-Picture window.
+    4. **Desktop / Mobile (`desktop`):** Switches User-Agent between desktop and mobile formats.
+    5. **Extensions Hub (`extension-puzzle`):** Displays active badge count; opens extensions manager and custom script builder.
 
 ---
 
-## 7. Dark Mode Synchronization Architecture
+## 9. Dark Mode Synchronization Architecture
 
 YouTube Web does not automatically respond to React Native app theme switches without direct integration. The application implements a multi-tier theme synchronizer:
 
@@ -161,11 +183,11 @@ YouTube Web does not automatically respond to React Native app theme switches wi
 3. **MutationObserver Guardian:**
    * YouTube's client-side SPA scripts periodically reset attributes on `<html>`. A lightweight `MutationObserver` on `document.documentElement` monitors the `dark` attribute and immediately re-applies it if YouTube attempts to remove it.
 4. **Instant Dynamic Theme Toggle (`ExtensionEngine.getThemeToggleScript`):**
-   * When the user taps the theme button in `TopHeader`, React Native executes an in-page script that toggles `dark` attributes, swaps `__rn_theme_style__` CSS variables, and fires a `yt-navigate-finish` event. YouTube transitions instantly between Dark and Light mode without a page reload.
+   * When the user taps the theme button in `TopHeader`, React Native executes an in-page script that toggles `dark` attributes, swaps `__rn_theme_style__` CSS variables, and fires a `yt-navigate-finish` event.
 
 ---
 
-## 8. How to Add New Extensions in the Future
+## 10. How to Add New Extensions in the Future
 
 ### Method A: Adding Built-in Extensions (In Code)
 
@@ -228,7 +250,7 @@ YouTube Web does not automatically respond to React Native app theme switches wi
 
 ---
 
-## 9. Quality Verification Checklist
+## 11. Quality Verification Checklist
 
 Before releasing updates or adding new dependencies, run:
 ```bash

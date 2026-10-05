@@ -17,6 +17,7 @@ import { BottomDock } from './src/components/BottomDock';
 import { ExtensionsModal } from './src/components/ExtensionsModal';
 import { CustomExtensionModal } from './src/components/CustomExtensionModal';
 import { SearchModal } from './src/components/SearchModal';
+import { PipPlayer } from './src/components/PipPlayer';
 import { triggerHaptic } from './src/utils/haptics';
 
 const MOBILE_USER_AGENT =
@@ -31,7 +32,12 @@ function MainApp() {
 
   const webViewRef = useRef<WebView>(null);
 
+  // Active top-level URI for the native WebView (updates on deliberate user navigation)
+  const [activeSourceUri, setActiveSourceUri] = useState('https://m.youtube.com');
+
+  // Currently loaded URL reported by the page (for UI/search tracking)
   const [currentUrl, setCurrentUrl] = useState('https://m.youtube.com');
+
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -39,16 +45,19 @@ function MainApp() {
 
   const [isDesktopMode, setIsDesktopMode] = useState(false);
 
+  // Picture-in-Picture (PiP) State
+  const [pipVideoId, setPipVideoId] = useState<string | null>(null);
+  const lastVideoIdRef = useRef<string | null>(null);
+
   // Modals
   const [isExtensionsModalOpen, setIsExtensionsModalOpen] = useState(false);
   const [isCustomExtensionModalOpen, setIsCustomExtensionModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
 
-  // Stable WebView source that only changes when desktop/mobile mode is explicitly toggled.
-  // This prevents the WebView from reloading the webpage and restarting video playback on in-page events.
+  // Stable WebView source that only changes when user explicitly switches webapp or desktop mode
   const webViewSource = useMemo(() => {
-    return { uri: isDesktopMode ? 'https://www.youtube.com' : 'https://m.youtube.com' };
-  }, [isDesktopMode]);
+    return { uri: activeSourceUri };
+  }, [activeSourceUri]);
 
   // Compile extension scripts (only recomputed when extensions or dark theme change)
   const injectedStartScript = useMemo(() => {
@@ -58,6 +67,18 @@ function MainApp() {
   const injectedEndScript = useMemo(() => {
     return ExtensionEngine.buildAfterContentLoadedScript(extensions, 'https://m.youtube.com', isDark);
   }, [extensions, isDark]);
+
+  // Extract YouTube Video ID
+  const extractVideoId = (url: string): string | null => {
+    if (!url) return null;
+    const watchMatch = url.match(/[?&]v=([^&#]+)/);
+    if (watchMatch) return watchMatch[1];
+    const shortsMatch = url.match(/\/shorts\/([^&#/?]+)/);
+    if (shortsMatch) return shortsMatch[1];
+    const embedMatch = url.match(/\/embed\/([^&#/?]+)/);
+    if (embedMatch) return embedMatch[1];
+    return null;
+  };
 
   // Handle hardware back button on Android
   useEffect(() => {
@@ -75,6 +96,10 @@ function MainApp() {
           setIsCustomExtensionModalOpen(false);
           return true;
         }
+        if (pipVideoId) {
+          setPipVideoId(null);
+          return true;
+        }
         if (canGoBack && webViewRef.current) {
           webViewRef.current.goBack();
           return true;
@@ -85,14 +110,21 @@ function MainApp() {
       const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
       return () => subscription.remove();
     }
-  }, [canGoBack, isSearchModalOpen, isExtensionsModalOpen, isCustomExtensionModalOpen]);
+  }, [canGoBack, isSearchModalOpen, isExtensionsModalOpen, isCustomExtensionModalOpen, pipVideoId]);
 
   const handleNavigate = (url: string) => {
     triggerHaptic();
-    setCurrentUrl(url);
-    if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`window.location.href = "${url}"; true;`);
+
+    // If navigating to another webapp (e.g. Instagram) while a video was playing:
+    // Automatically pop the video into floating PiP mode so it keeps playing!
+    const activeVid = extractVideoId(currentUrl) || lastVideoIdRef.current;
+    const isOtherWebapp = !url.includes('youtube.com');
+    if (isOtherWebapp && activeVid && !pipVideoId) {
+      setPipVideoId(activeVid);
     }
+
+    setCurrentUrl(url);
+    setActiveSourceUri(url);
   };
 
   const handleGoBack = () => {
@@ -126,9 +158,7 @@ function MainApp() {
     triggerHaptic();
     const targetUrl = isDesktopMode ? 'https://www.youtube.com' : 'https://m.youtube.com';
     setCurrentUrl(targetUrl);
-    if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`window.location.href = "${targetUrl}"; true;`);
-    }
+    setActiveSourceUri(targetUrl);
   };
 
   const handleToggleDesktopMode = () => {
@@ -139,15 +169,12 @@ function MainApp() {
       ? currentUrl.replace('m.youtube.com', 'www.youtube.com')
       : currentUrl.replace('www.youtube.com', 'm.youtube.com');
     setCurrentUrl(newUrl);
-    if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`window.location.href = "${newUrl}"; true;`);
-    }
+    setActiveSourceUri(newUrl);
   };
 
   const handleToggleZenMode = () => {
     toggleExtension('youtube-distraction-free');
     triggerHaptic();
-    // Re-inject updated styles immediately
     if (webViewRef.current) {
       webViewRef.current.injectJavaScript(
         ExtensionEngine.buildAfterContentLoadedScript(extensions, currentUrl, isDark)
@@ -164,6 +191,28 @@ function MainApp() {
     }
   };
 
+  const handleTogglePip = () => {
+    triggerHaptic();
+    if (pipVideoId) {
+      setPipVideoId(null);
+      return;
+    }
+    const vidId = extractVideoId(currentUrl) || lastVideoIdRef.current;
+    if (vidId) {
+      setPipVideoId(vidId);
+    } else {
+      setIsSearchModalOpen(true);
+    }
+  };
+
+  const handleExpandPip = () => {
+    if (pipVideoId) {
+      const watchUrl = `https://m.youtube.com/watch?v=${pipVideoId}`;
+      setPipVideoId(null);
+      handleNavigate(watchUrl);
+    }
+  };
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: palette.surface }]}
@@ -171,7 +220,7 @@ function MainApp() {
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      {/* Top Navigation Header (Clean, no search bar) */}
+      {/* Top Navigation Header with Zen Mode & Theme Switcher */}
       <TopHeader
         isLoading={isLoading}
         onGoBack={handleGoBack}
@@ -180,6 +229,7 @@ function MainApp() {
         onGoHome={handleGoHome}
         onOpenExtensions={() => setIsExtensionsModalOpen(true)}
         onToggleTheme={handleToggleTheme}
+        onToggleZenMode={handleToggleZenMode}
       />
 
       {/* Loading Progress Bar */}
@@ -222,6 +272,10 @@ function MainApp() {
             setCanGoForward(navState.canGoForward);
             if (navState.url) {
               setCurrentUrl(navState.url);
+              const vid = extractVideoId(navState.url);
+              if (vid) {
+                lastVideoIdRef.current = vid;
+              }
             }
           }}
           onLoadStart={() => setIsLoading(true)}
@@ -243,22 +297,33 @@ function MainApp() {
         />
       </View>
 
-      {/* Bottom Floating Neumorphic Dock with Search icon */}
+      {/* Floating Picture-in-Picture Miniplayer */}
+      {pipVideoId && (
+        <PipPlayer
+          videoId={pipVideoId}
+          onClose={() => setPipVideoId(null)}
+          onExpand={handleExpandPip}
+        />
+      )}
+
+      {/* Bottom Floating Neumorphic Dock with WebApps Hub and PiP Mode */}
       <BottomDock
         isDesktopMode={isDesktopMode}
+        isPipActive={!!pipVideoId}
         onGoHome={handleGoHome}
         onOpenSearch={() => setIsSearchModalOpen(true)}
+        onTogglePip={handleTogglePip}
         onOpenExtensions={() => setIsExtensionsModalOpen(true)}
-        onToggleZenMode={handleToggleZenMode}
         onToggleDesktopMode={handleToggleDesktopMode}
       />
 
-      {/* Search Modal */}
+      {/* WebApps & Browser Hub Modal */}
       <SearchModal
         visible={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
-        onSearch={handleNavigate}
+        onNavigate={handleNavigate}
         currentUrl={currentUrl}
+        hasActiveVideo={!!(extractVideoId(currentUrl) || lastVideoIdRef.current)}
       />
 
       {/* Extensions Hub Modal */}

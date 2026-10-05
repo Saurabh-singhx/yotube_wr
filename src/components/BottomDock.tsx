@@ -8,26 +8,25 @@ import { NeumorphicButton } from './neumorphic/NeumorphicButton';
 
 interface BottomDockProps {
   isDesktopMode: boolean;
+  isPipActive?: boolean;
   onGoHome: () => void;
   onOpenSearch: () => void;
+  onTogglePip?: () => void;
   onOpenExtensions: () => void;
-  onToggleZenMode: () => void;
   onToggleDesktopMode: () => void;
 }
 
 export const BottomDock: React.FC<BottomDockProps> = ({
   isDesktopMode,
+  isPipActive = false,
   onGoHome,
   onOpenSearch,
+  onTogglePip,
   onOpenExtensions,
-  onToggleZenMode,
   onToggleDesktopMode,
 }) => {
   const { palette } = useTheme();
   const { extensions } = useExtensions();
-
-  const zenExt = extensions.find((e) => e.id === 'youtube-distraction-free');
-  const isZenActive = zenExt?.enabled ?? false;
 
   const activeExtensionsCount = extensions.filter((e) => e.enabled).length;
 
@@ -48,30 +47,32 @@ export const BottomDock: React.FC<BottomDockProps> = ({
             icon={<Ionicons name="home" size={20} color={palette.textPrimary} />}
           />
 
-          {/* 2. Search Modal */}
+          {/* 2. WebApps & Search Hub */}
           <NeumorphicButton
             onPress={onOpenSearch}
             size="sm"
             style={styles.dockItem}
             borderRadius={23}
-            icon={<Ionicons name="search" size={20} color={palette.accent} />}
+            icon={<Ionicons name="globe" size={20} color={palette.accent} />}
           />
 
-          {/* 3. Zen Distraction-Free Toggle */}
-          <NeumorphicButton
-            onPress={onToggleZenMode}
-            size="sm"
-            style={styles.dockItem}
-            borderRadius={23}
-            isActive={isZenActive}
-            icon={
-              <Ionicons
-                name="leaf"
-                size={19}
-                color={isZenActive ? palette.success : palette.textPrimary}
-              />
-            }
-          />
+          {/* 3. Picture-in-Picture (PiP) Mode */}
+          {onTogglePip && (
+            <NeumorphicButton
+              onPress={onTogglePip}
+              size="sm"
+              style={styles.dockItem}
+              borderRadius={23}
+              isActive={isPipActive}
+              icon={
+                <Ionicons
+                  name="tv"
+                  size={19}
+                  color={isPipActive ? palette.primary : palette.textPrimary}
+                />
+              }
+            />
+          )}
 
           {/* 4. Desktop / Mobile Toggle */}
           <NeumorphicButton
