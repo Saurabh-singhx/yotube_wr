@@ -87,13 +87,34 @@ export function getBackgroundPlayScript(): string {
           document.hasFocus = function() { return true; };
         } catch(e) {}
 
-        // 6. User gesture tracking to differentiate intentional pauses from automated background pauses
+        // 6. User gesture & App state tracking to differentiate intentional pauses from automated background pauses
         window.__lastUserGestureTime = 0;
+        window.__lastPlayerInteractionTime = 0;
         window.__userWantsPaused = false;
         window.__isRemotePauseCommand = false;
+        window.__isRemotePlayCommand = false;
+        if (typeof window.__isAppInBackground === 'undefined') {
+          window.__isAppInBackground = false;
+        }
 
-        var recordUserGesture = function() {
-          window.__lastUserGestureTime = Date.now();
+        var recordUserGesture = function(ev) {
+          if (ev && ev.isTrusted === false) return;
+          var now = Date.now();
+          window.__lastUserGestureTime = now;
+
+          // Detect if touch/click was directed specifically at the video player or play/pause button
+          try {
+            var target = ev && ev.target;
+            if (target && target.closest) {
+              var isPlayerEl = target.closest(
+                'video, .html5-video-player, #movie_player, .ytp-play-button, ytm-play-pause-button, ' +
+                'button[aria-label*="pause" i], button[aria-label*="play" i], .ytp-chrome-bottom, .video-stream'
+              );
+              if (isPlayerEl) {
+                window.__lastPlayerInteractionTime = now;
+              }
+            }
+          } catch(_) {}
         };
         ['touchstart', 'touchend', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'keydown'].forEach(function(ev) {
           window.addEventListener(ev, recordUserGesture, true);
@@ -104,7 +125,13 @@ export function getBackgroundPlayScript(): string {
         try {
           var origMediaPlay = HTMLMediaElement.prototype.play;
           HTMLMediaElement.prototype.play = function() {
-            window.__userWantsPaused = false;
+            var now = Date.now();
+            var isPlayerTap = (now - (window.__lastPlayerInteractionTime || 0)) < 1500;
+            // Only clear userWantsPaused if triggered by remote play command, explicit player tap, or not in paused state
+            if (window.__isRemotePlayCommand || isPlayerTap || !window.__userWantsPaused) {
+              window.__userWantsPaused = false;
+              window.__isRemotePlayCommand = false;
+            }
             return origMediaPlay.apply(this, arguments);
           };
 
@@ -121,20 +148,31 @@ export function getBackgroundPlayScript(): string {
               return origMediaPause.apply(this, arguments);
             }
 
-            var now = Date.now();
-            var isRecentGesture = (now - (window.__lastUserGestureTime || 0)) < 1200;
-
-            // If the user has not recently touched the screen and did not send a remote pause command,
-            // this is an automated pause triggered by backgrounding / blur / visibility loss.
-            // Suppress it completely so background playback continues uninterrupted!
-            if (!isRecentGesture && !window.__userWantsPaused) {
+            // If the app is in the background (minimized, screen locked, app switched),
+            // NEVER allow automated background pauses from YouTube, blur, visibility loss, or Chromium!
+            // This completely prevents background playback from pausing on app minimize or looping.
+            if (window.__isAppInBackground === true) {
               return;
             }
 
-            if (isRecentGesture) {
-              window.__userWantsPaused = true;
+            var now = Date.now();
+            var isPlayerInteraction = (now - (window.__lastPlayerInteractionTime || 0)) < 1500;
+            var isRecentGesture = (now - (window.__lastUserGestureTime || 0)) < 1200;
+
+            // If the user already flagged they wanted playback paused in the foreground, allow it:
+            if (window.__userWantsPaused) {
+              return origMediaPause.apply(this, arguments);
             }
 
+            // In foreground, if neither direct player interaction nor gesture occurred,
+            // this is an automated pause triggered by background blur or visibility change.
+            // Suppress it!
+            if (!isPlayerInteraction && !isRecentGesture) {
+              return;
+            }
+
+            // Legitimate user pause in foreground:
+            window.__userWantsPaused = true;
             return origMediaPause.apply(this, arguments);
           };
         } catch(e) {}
@@ -425,6 +463,7 @@ export function getRemoteControlScript(action: string, position?: number): strin
         switch ('${action}') {
           case 'PLAY':
             window.__userWantsPaused = false;
+            window.__isRemotePlayCommand = true;
             if (video) {
               try {
                 if (video.muted) video.muted = false;

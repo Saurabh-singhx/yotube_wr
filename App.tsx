@@ -7,6 +7,8 @@ import {
   useWindowDimensions,
   NativeModules,
   NativeEventEmitter,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -112,6 +114,24 @@ function MainApp() {
         NativeModules.MediaSessionModule.stopPlayback();
       }
     };
+  }, []);
+
+  // Bridge native AppState to WebView so backgrounding is never confused with player pause gestures
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      const isBackground = nextAppState === 'background' || nextAppState === 'inactive';
+      if (webViewRef.current) {
+        webViewRef.current.injectJavaScript(`
+          (function() {
+            window.__isAppInBackground = ${isBackground};
+          })();
+          true;
+        `);
+      }
+    };
+
+    const appStateSub = AppState.addEventListener('change', handleAppStateChange);
+    return () => appStateSub.remove();
   }, []);
 
   // Stable WebView source that only changes when user explicitly switches webapp or desktop mode

@@ -32,6 +32,8 @@ describe('mediaSessionScript', () => {
     it('tracks user gestures and intercepts HTMLMediaElement pause to prevent automated background pause', () => {
       const script = getBackgroundPlayScript();
       expect(script).toContain('window.__lastUserGestureTime');
+      expect(script).toContain('window.__lastPlayerInteractionTime');
+      expect(script).toContain('window.__isAppInBackground');
       expect(script).toContain('window.__userWantsPaused');
       expect(script).toContain('HTMLMediaElement.prototype.pause');
       expect(script).toContain('HTMLMediaElement.prototype.play');
@@ -69,6 +71,7 @@ describe('mediaSessionScript', () => {
     it('generates play command', () => {
       const script = getRemoteControlScript('PLAY');
       expect(script).toContain("case 'PLAY':");
+      expect(script).toContain('window.__isRemotePlayCommand = true');
       expect(script).toContain("actions['play']()");
       expect(script).toContain('video.play()');
     });

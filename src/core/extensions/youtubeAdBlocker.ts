@@ -303,7 +303,7 @@ export const youtubeAdBlocker: ExtensionManifest = {
               }
 
               // Play if paused without flood
-              if (video.paused && video.readyState >= 2 && !isPlayingAd) {
+              if (video.paused && video.readyState >= 2 && !isPlayingAd && !window.__userWantsPaused) {
                 isPlayingAd = true;
                 try {
                   var p = video.play();
@@ -336,10 +336,10 @@ export const youtubeAdBlocker: ExtensionManifest = {
                 video.muted = savedMuted || false;
                 video.volume = savedVolume || 1;
 
-                if (video.paused && !video.ended) {
+                if (video.paused && !video.ended && !window.__userWantsPaused) {
                   try { video.play().catch(function(){}); } catch(e) {}
                 }
-                if (player) {
+                if (player && !window.__userWantsPaused) {
                   try {
                     if (typeof player.unMute === 'function') player.unMute();
                     if (typeof player.getVolume === 'function' && player.getVolume() === 0) {
@@ -353,14 +353,14 @@ export const youtubeAdBlocker: ExtensionManifest = {
                 // Prevents black screen freeze after ad skip without needing manual scrub
                 var unfreezeDecoder = function() {
                   try {
-                    if (!video || video.ended) return;
+                    if (!video || video.ended || window.__userWantsPaused) return;
                     if (video.currentTime < 1.0) {
                       video.currentTime = Math.max(0.01, (video.currentTime || 0) + 0.01);
                     }
-                    if (video.paused) {
+                    if (video.paused && !window.__userWantsPaused) {
                       video.play().catch(function(){});
                     }
-                    if (player && typeof player.playVideo === 'function') {
+                    if (player && typeof player.playVideo === 'function' && !window.__userWantsPaused) {
                       player.playVideo();
                     }
                   } catch(e) {}
@@ -422,7 +422,7 @@ export const youtubeAdBlocker: ExtensionManifest = {
 
         function unfreezeWatchdog() {
           var v = document.querySelector('video');
-          if (!v || v.paused || v.ended || v.readyState < 2 || checkIsAd(v)) {
+          if (!v || v.paused || v.ended || v.readyState < 2 || checkIsAd(v) || window.__userWantsPaused) {
             freezeStallCount = 0;
             return;
           }
