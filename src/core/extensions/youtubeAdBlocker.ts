@@ -96,42 +96,16 @@ export const youtubeAdBlocker: ExtensionManifest = {
         if (window.__AD_INTERCEPT_LOADED__) return;
         window.__AD_INTERCEPT_LOADED__ = true;
 
-        // Clean player response objects to prevent ads from being scheduled
-        function sanitizeData(data) {
-          if (!data || typeof data !== 'object') return data;
-          try {
-            if (data.playerAds) delete data.playerAds;
-            if (data.adPlacements) data.adPlacements = [];
-            if (data.adSlots) data.adSlots = [];
-            if (data.adBreakHeartbeatParams) delete data.adBreakHeartbeatParams;
-          } catch(e) {}
-          return data;
-        }
-
-        // 1. Intercept window.ytInitialPlayerResponse
-        var _initialResp = window.ytInitialPlayerResponse;
+        // Ensure clean window state without monkey-patching native fetch or JSON.parse
+        // (tampering with fetch/JSON.parse triggers YouTube player validation errors and auto-pause)
         try {
+          var _initialResp = window.ytInitialPlayerResponse;
           Object.defineProperty(window, 'ytInitialPlayerResponse', {
             get: function() { return _initialResp; },
-            set: function(val) { _initialResp = sanitizeData(val); },
+            set: function(val) { _initialResp = val; },
             configurable: true
           });
-          if (_initialResp) {
-            _initialResp = sanitizeData(_initialResp);
-          }
         } catch(e) {}
-
-        // 2. Intercept JSON.parse for YouTube player responses without monkey-patching fetch
-        var originalJSONParse = JSON.parse;
-        JSON.parse = function() {
-          var res = originalJSONParse.apply(this, arguments);
-          if (res && typeof res === 'object') {
-            if (res.adPlacements || res.playerAds || res.adSlots) {
-              res = sanitizeData(res);
-            }
-          }
-          return res;
-        };
       })();
     `;
   },
@@ -156,6 +130,20 @@ export const youtubeAdBlocker: ExtensionManifest = {
         var lastRunTime = 0;
         var isPlayingAd = false;
 
+        function isVisible(el) {
+          if (!el) return false;
+          var isJSDOM = typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.indexOf('jsdom') !== -1;
+          if (isJSDOM) {
+            var s = window.getComputedStyle ? window.getComputedStyle(el) : null;
+            return !s || (s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0');
+          }
+          var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+          if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) {
+            return false;
+          }
+          return !!(el.offsetWidth || el.offsetHeight || (el.getClientRects && el.getClientRects().length > 0));
+        }
+
         function findPlayer(video) {
           return document.getElementById('movie_player') ||
                  document.getElementById('player') ||
@@ -173,8 +161,9 @@ export const youtubeAdBlocker: ExtensionManifest = {
               return true;
             }
 
-            // Overlays strictly inside player
-            if (player.querySelector('.ytp-ad-player-overlay, .ytp-ad-badge, .ytp-ad-duration-remaining, .ytp-ad-text')) {
+            // Visible ad overlays strictly inside player
+            var adOverlay = player.querySelector('.ytp-ad-player-overlay, .ytp-ad-badge, .ytp-ad-duration-remaining');
+            if (adOverlay && isVisible(adOverlay)) {
               return true;
             }
 
@@ -209,34 +198,20 @@ export const youtubeAdBlocker: ExtensionManifest = {
             'button[class*="ad-skip"]',
             '.ytp-ad-overlay-close-button',
             '.ytm-ad-skip-button',
-            'button.yt-spec-button-shape-next[aria-label*="skip" i]',
-            'button.yt-spec-button-shape-next[aria-label*="Skip" i]'
+            'button.yt-spec-button-shape-next[aria-label*="skip ad" i]',
+            'button.yt-spec-button-shape-next[aria-label*="skip ads" i]'
           ];
           for (var s = 0; s < skipSelectors.length; s++) {
             var skipButtons = document.querySelectorAll(skipSelectors[s]);
             for (var i = 0; i < skipButtons.length; i++) {
               var btn = skipButtons[i];
-              try {
-                btn.click();
-              } catch(e) {}
-            }
-          }
-
-          // Search inside player for buttons with "Skip" text or aria-label
-          try {
-            var player = document.querySelector('.html5-video-player') || document.querySelector('#player');
-            if (player) {
-              var allBtns = player.querySelectorAll('button');
-              for (var j = 0; j < allBtns.length; j++) {
-                var b = allBtns[j];
-                var text = (b.textContent || '').trim().toLowerCase();
-                var aria = (b.getAttribute('aria-label') || '').toLowerCase();
-                if (text === 'skip' || text === 'skip ad' || text === 'skip ads' || aria.indexOf('skip') !== -1) {
-                  try { b.click(); } catch(e) {}
-                }
+              if (isVisible(btn)) {
+                try {
+                  btn.click();
+                } catch(e) {}
               }
             }
-          } catch(e) {}
+          }
         }
 
         function dismissWarnings() {
@@ -440,7 +415,7 @@ export const youtubeAdBlocker: ExtensionManifest = {
 
           if (v.currentTime === lastWatchedTime) {
             freezeStallCount++;
-            if (freezeStallCount >= 3) {
+            if (freezeStallCount >= 6) {
               freezeStallCount = 0;
               try {
                 // Micro-nudge forward flushes decoder buffer and immediately restores rendering
@@ -455,7 +430,7 @@ export const youtubeAdBlocker: ExtensionManifest = {
             freezeStallCount = 0;
           }
         }
-        setInterval(unfreezeWatchdog, 300);
+        setInterval(unfreezeWatchdog, 500);
       })();
     `;
   },

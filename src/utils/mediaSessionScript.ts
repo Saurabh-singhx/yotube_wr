@@ -65,10 +65,6 @@ export function getBackgroundPlayScript(): string {
             }
             return origEventTargetAddEventListener.call(this, type, listener, options);
           };
-          Document.prototype.addEventListener = EventTarget.prototype.addEventListener;
-          Window.prototype.addEventListener = EventTarget.prototype.addEventListener;
-          document.addEventListener = EventTarget.prototype.addEventListener;
-          window.addEventListener = EventTarget.prototype.addEventListener;
         } catch(e) {}
 
         // 5. Overwrite hasFocus to always return true
@@ -100,19 +96,31 @@ export function getBackgroundPlayScript(): string {
 
           var origMediaPause = HTMLMediaElement.prototype.pause;
           HTMLMediaElement.prototype.pause = function() {
-            var now = Date.now();
-            var isRecentGesture = (now - (window.__lastUserGestureTime || 0)) < 1000;
             var isRemotePause = window.__isRemotePauseCommand === true;
-            var userWants = window.__userWantsPaused === true;
-
-            if (isRecentGesture || isRemotePause || userWants || this.ended) {
+            if (isRemotePause) {
               window.__userWantsPaused = true;
               window.__isRemotePauseCommand = false;
               return origMediaPause.apply(this, arguments);
             }
 
-            // Suppress automated pause triggered by backgrounding/hidden state
-            return;
+            if (this.ended) {
+              return origMediaPause.apply(this, arguments);
+            }
+
+            var now = Date.now();
+            var isRecentGesture = (now - (window.__lastUserGestureTime || 0)) < 1200;
+
+            // In background, suppress automated pauses triggered by visibilitychange/pagehide
+            var isHidden = document.hidden === true || document.webkitHidden === true;
+            if (isHidden && !isRecentGesture && !window.__userWantsPaused) {
+              return;
+            }
+
+            if (isRecentGesture) {
+              window.__userWantsPaused = true;
+            }
+
+            return origMediaPause.apply(this, arguments);
           };
         } catch(e) {}
 
@@ -288,6 +296,9 @@ export function getMediaObserverScript(): string {
         var events = ['play', 'pause', 'ended', 'timeupdate', 'loadedmetadata', 'ratechange'];
         events.forEach(function(ev) {
           video.addEventListener(ev, function() {
+            if (ev === 'play' || (ev === 'timeupdate' && !video.paused)) {
+              window.__userWantsPaused = false;
+            }
             reportMediaState(video, ev !== 'timeupdate');
           });
         });
