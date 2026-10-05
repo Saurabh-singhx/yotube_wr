@@ -82,37 +82,47 @@ function MainApp() {
   }, [canGoBack, isSearchModalOpen, isExtensionsModalOpen, isCustomExtensionModalOpen]);
 
   const handleNavigate = (url: string) => {
+    triggerHaptic();
     setCurrentUrl(url);
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`window.location.href = "${url}"; true;`);
+    }
   };
 
   const handleGoBack = () => {
-    if (canGoBack && webViewRef.current) {
+    triggerHaptic();
+    if (webViewRef.current) {
       webViewRef.current.goBack();
-      triggerHaptic();
+      webViewRef.current.injectJavaScript('window.history.back(); true;');
     }
   };
 
   const handleGoForward = () => {
-    if (canGoForward && webViewRef.current) {
+    triggerHaptic();
+    if (webViewRef.current) {
       webViewRef.current.goForward();
-      triggerHaptic();
+      webViewRef.current.injectJavaScript('window.history.forward(); true;');
     }
   };
 
   const handleReload = () => {
+    triggerHaptic();
     if (webViewRef.current) {
       if (isLoading) {
         webViewRef.current.stopLoading();
       } else {
         webViewRef.current.reload();
       }
-      triggerHaptic();
     }
   };
 
   const handleGoHome = () => {
-    setCurrentUrl(isDesktopMode ? 'https://www.youtube.com' : 'https://m.youtube.com');
     triggerHaptic();
+    const targetUrl = isDesktopMode ? 'https://www.youtube.com' : 'https://m.youtube.com';
+    setCurrentUrl(targetUrl);
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`window.location.href = "${targetUrl}"; true;`);
+    }
   };
 
   const handleToggleDesktopMode = () => {
@@ -123,6 +133,9 @@ function MainApp() {
       ? currentUrl.replace('m.youtube.com', 'www.youtube.com')
       : currentUrl.replace('www.youtube.com', 'm.youtube.com');
     setCurrentUrl(newUrl);
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`window.location.href = "${newUrl}"; true;`);
+    }
   };
 
   const handleToggleZenMode = () => {
@@ -131,7 +144,7 @@ function MainApp() {
     // Re-inject updated styles immediately
     if (webViewRef.current) {
       webViewRef.current.injectJavaScript(
-        ExtensionEngine.buildAfterContentLoadedScript(extensions, currentUrl)
+        ExtensionEngine.buildAfterContentLoadedScript(extensions, currentUrl, isDark)
       );
     }
   };
@@ -154,8 +167,6 @@ function MainApp() {
 
       {/* Top Navigation Header (Clean, no search bar) */}
       <TopHeader
-        canGoBack={canGoBack}
-        canGoForward={canGoForward}
         isLoading={isLoading}
         onGoBack={handleGoBack}
         onGoForward={handleGoForward}
@@ -219,6 +230,9 @@ function MainApp() {
           thirdPartyCookiesEnabled={true}
           cacheEnabled={true}
           setSupportMultipleWindows={false}
+          androidLayerType="hardware"
+          mixedContentMode="always"
+          originWhitelist={['*']}
           style={styles.webView}
         />
       </View>

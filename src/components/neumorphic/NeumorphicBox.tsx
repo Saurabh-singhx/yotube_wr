@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle, StyleProp } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
-import { NeumorphicDepth, NeumorphicState, getNeumorphicShadow } from '../../theme/neumorphism';
+import { NeumorphicDepth, NeumorphicState } from '../../theme/neumorphism';
 
 interface NeumorphicBoxProps {
   children?: React.ReactNode;
@@ -21,50 +21,94 @@ export const NeumorphicBox: React.FC<NeumorphicBoxProps> = ({
   highlight = true,
 }) => {
   const { palette } = useTheme();
+  const isPressed = state === 'pressed' || state === 'inset';
 
-  if (state === 'pressed' || state === 'inset') {
-    return (
-      <View
-        style={[
-          styles.container,
-          {
-            backgroundColor: palette.surfacePressed,
-            borderRadius,
-            borderColor: palette.isDark ? '#101216' : '#CCD5E2',
-            borderWidth: 1.5,
-          },
-          style,
-        ]}
-      >
-        {children}
-      </View>
-    );
-  }
+  const flatStyle = (StyleSheet.flatten(style) || {}) as ViewStyle;
+  const {
+    margin,
+    marginTop,
+    marginBottom,
+    marginLeft,
+    marginRight,
+    marginHorizontal,
+    marginVertical,
+    alignSelf,
+    flex,
+    position,
+    top,
+    bottom,
+    left,
+    right,
+    zIndex,
+    width,
+    height,
+    minWidth,
+    maxWidth,
+    minHeight,
+    maxHeight,
+    ...innerStyles
+  } = flatStyle;
 
-  const baseShadow = getNeumorphicShadow(palette, depth, state);
+  const outerLayout: ViewStyle = {
+    margin,
+    marginTop,
+    marginBottom,
+    marginLeft,
+    marginRight,
+    marginHorizontal,
+    marginVertical,
+    alignSelf,
+    flex,
+    position,
+    top,
+    bottom,
+    left,
+    right,
+    zIndex,
+    width,
+    height,
+    minWidth,
+    maxWidth,
+    minHeight,
+    maxHeight,
+  };
 
   return (
     <View
       style={[
         styles.lightShadowWrapper,
-        highlight && {
-          shadowColor: palette.shadowLight,
-          shadowOffset: depth === 'high' ? { width: -5, height: -5 } : { width: -3, height: -3 },
-          shadowOpacity: palette.isDark ? 0.35 : 0.85,
-          shadowRadius: depth === 'high' ? 10 : 6,
-        },
         { borderRadius },
+        !isPressed && highlight && {
+          shadowColor: palette.shadowLight,
+          shadowOffset: depth === 'high' ? { width: -3, height: -3 } : { width: -2, height: -2 },
+          shadowOpacity: palette.isDark ? 0.3 : 0.85,
+          shadowRadius: depth === 'high' ? 6 : 4,
+        },
+        outerLayout,
       ]}
     >
       <View
         style={[
           styles.container,
-          baseShadow,
           {
             borderRadius,
-            backgroundColor: palette.surfaceElevated,
+            backgroundColor: isPressed ? palette.surfacePressed : palette.surfaceElevated,
+            borderColor: isPressed
+              ? (palette.isDark ? '#0A0C0E' : '#CAD4E0')
+              : palette.surfaceBorder,
+            borderWidth: isPressed ? 1.5 : 1,
+            width: width !== undefined ? '100%' : undefined,
+            height: height !== undefined ? '100%' : undefined,
+            flex: flex !== undefined ? 1 : undefined,
           },
-          style,
+          !isPressed && {
+            shadowColor: palette.shadowDark,
+            shadowOffset: depth === 'high' ? { width: 4, height: 4 } : { width: 2, height: 2 },
+            shadowOpacity: palette.isDark ? 0.6 : 0.35,
+            shadowRadius: depth === 'high' ? 6 : 4,
+            elevation: depth === 'high' ? 5 : 2,
+          },
+          innerStyles,
         ]}
       >
         {children}
@@ -78,6 +122,6 @@ const styles = StyleSheet.create({
     // Outer shadow container providing the top-left highlight in neumorphism
   },
   container: {
-    overflow: 'hidden',
+    // Inner surface container
   },
 });

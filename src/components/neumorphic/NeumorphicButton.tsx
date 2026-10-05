@@ -1,5 +1,13 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, ViewStyle, StyleProp, TextStyle, View } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  ViewStyle,
+  StyleProp,
+  TextStyle,
+  View,
+} from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { triggerHaptic } from '../../utils/haptics';
 import { NeumorphicBox } from './NeumorphicBox';
@@ -34,18 +42,21 @@ export const NeumorphicButton: React.FC<NeumorphicButtonProps> = ({
   const { palette } = useTheme();
   const [isPressed, setIsPressed] = useState(false);
 
-  const handlePressIn = () => {
-    if (disabled) return;
-    setIsPressed(true);
-    triggerHaptic();
-  };
+  const flatStyle = (StyleSheet.flatten(style) || {}) as ViewStyle;
+  const isFixedDimension = !!(flatStyle.width && flatStyle.height);
+  const resolvedBorderRadius =
+    flatStyle.borderRadius !== undefined
+      ? (flatStyle.borderRadius as number)
+      : borderRadius;
 
-  const handlePressOut = () => {
-    setIsPressed(false);
+  const handlePress = () => {
+    if (disabled) return;
+    triggerHaptic();
+    onPress();
   };
 
   const sizeStyles = {
-    sm: { paddingVertical: 6, paddingHorizontal: 10, minHeight: 34, minWidth: 34 },
+    sm: { paddingVertical: 6, paddingHorizontal: 10, minHeight: 38, minWidth: 38 },
     md: { paddingVertical: 10, paddingHorizontal: 14, minHeight: 44, minWidth: 44 },
     lg: { paddingVertical: 14, paddingHorizontal: 20, minHeight: 52, minWidth: 52 },
   };
@@ -68,29 +79,32 @@ export const NeumorphicButton: React.FC<NeumorphicButtonProps> = ({
 
   return (
     <Pressable
-      onPress={onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
+      onPress={handlePress}
+      onPressIn={() => !disabled && setIsPressed(true)}
+      onPressOut={() => setIsPressed(false)}
       disabled={disabled}
-      style={({ pressed }) => [{ opacity: disabled ? 0.5 : 1 }]}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      style={[{ opacity: disabled ? 0.45 : 1 }, style]}
     >
       <NeumorphicBox
         state={isSunken ? 'pressed' : 'elevated'}
         depth={size === 'sm' ? 'low' : 'medium'}
-        borderRadius={borderRadius}
+        borderRadius={resolvedBorderRadius}
         style={[
           styles.buttonBase,
-          sizeStyles[size],
+          isFixedDimension
+            ? { width: '100%', height: '100%', paddingHorizontal: 0, paddingVertical: 0 }
+            : sizeStyles[size],
+          flatStyle.flex !== undefined ? { flex: 1, width: '100%' } : undefined,
           {
             backgroundColor: getBackgroundColor(),
             borderColor: isActive
               ? palette.accent
               : isSunken
-              ? (palette.isDark ? '#0A0C0E' : '#C0CBD8')
+              ? (palette.isDark ? '#0A0C0E' : '#CAD4E0')
               : palette.surfaceBorder,
             borderWidth: isActive ? 1.5 : 1,
           },
-          style,
         ]}
       >
         <View style={styles.contentRow}>
@@ -109,21 +123,24 @@ export const NeumorphicButton: React.FC<NeumorphicButtonProps> = ({
               {title}
             </Text>
           ) : null}
-          {badge !== undefined && badge !== 0 && (
-            <View
-              style={[
-                styles.badge,
-                {
-                  backgroundColor: palette.primary,
-                  borderColor: palette.surface,
-                },
-              ]}
-            >
-              <Text style={styles.badgeText}>{badge}</Text>
-            </View>
-          )}
         </View>
       </NeumorphicBox>
+
+      {/* Badge placed on outer pressable so it is never clipped */}
+      {badge !== undefined && badge !== 0 && (
+        <View
+          style={[
+            styles.badge,
+            {
+              backgroundColor: palette.primary,
+              borderColor: palette.surface,
+            },
+          ]}
+          pointerEvents="none"
+        >
+          <Text style={styles.badgeText}>{badge}</Text>
+        </View>
+      )}
     </Pressable>
   );
 };
@@ -154,8 +171,8 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: -8,
-    right: -8,
+    top: -4,
+    right: -4,
     minWidth: 18,
     height: 18,
     borderRadius: 9,
@@ -163,10 +180,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 4,
     borderWidth: 1.5,
+    zIndex: 10,
+    elevation: 3,
   },
   badgeText: {
-    color: '#FFF',
+    color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
 });

@@ -6,8 +6,6 @@ import { useExtensions } from '../context/ExtensionContext';
 import { NeumorphicButton } from './neumorphic/NeumorphicButton';
 
 interface TopHeaderProps {
-  canGoBack: boolean;
-  canGoForward: boolean;
   isLoading: boolean;
   onGoBack: () => void;
   onGoForward: () => void;
@@ -18,8 +16,6 @@ interface TopHeaderProps {
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
-  canGoBack,
-  canGoForward,
   isLoading,
   onGoBack,
   onGoForward,
@@ -37,32 +33,30 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   return (
     <View style={[styles.headerContainer, { backgroundColor: palette.surface }]}>
       <View style={styles.topRow}>
-        {/* Navigation buttons: Back, Forward, Reload */}
+        {/* Left Navigation Buttons: Back, Forward, Reload */}
         <View style={styles.navButtonsGroup}>
           <NeumorphicButton
             onPress={onGoBack}
-            disabled={!canGoBack}
             size="sm"
             style={styles.circleBtn}
             icon={
               <Ionicons
                 name="chevron-back"
-                size={18}
-                color={canGoBack ? palette.textPrimary : palette.textMuted}
+                size={20}
+                color={palette.textPrimary}
               />
             }
           />
 
           <NeumorphicButton
             onPress={onGoForward}
-            disabled={!canGoForward}
             size="sm"
             style={styles.circleBtn}
             icon={
               <Ionicons
                 name="chevron-forward"
-                size={18}
-                color={canGoForward ? palette.textPrimary : palette.textMuted}
+                size={20}
+                color={palette.textPrimary}
               />
             }
           />
@@ -74,24 +68,28 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             icon={
               <Ionicons
                 name={isLoading ? 'close' : 'reload'}
-                size={16}
+                size={18}
                 color={palette.textPrimary}
               />
             }
           />
         </View>
 
-        {/* Center Brand / Logo */}
-        <Pressable onPress={onGoHome} style={styles.brandContainer}>
+        {/* Center Logo / Home Shortcut */}
+        <Pressable
+          onPress={onGoHome}
+          style={styles.brandContainer}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
           <View style={[styles.brandIconWrapper, { backgroundColor: palette.primary }]}>
-            <Ionicons name="play" size={14} color="#FFF" style={{ marginLeft: 2 }} />
+            <Ionicons name="play" size={13} color="#FFF" style={{ marginLeft: 2 }} />
           </View>
           <Text style={[styles.brandText, { color: palette.textPrimary }]}>
             YT<Text style={{ color: palette.primary }}>_wr</Text>
           </Text>
         </Pressable>
 
-        {/* Right Action buttons: AdShield badge & Theme toggle */}
+        {/* Right Actions: Shield Badge & Theme Switcher */}
         <View style={styles.actionButtonsGroup}>
           <NeumorphicButton
             onPress={onOpenExtensions}
@@ -101,7 +99,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             icon={
               <Ionicons
                 name={isAdBlockerActive ? 'shield-checkmark' : 'shield-outline'}
-                size={16}
+                size={18}
                 color={isAdBlockerActive ? palette.success : palette.textMuted}
               />
             }
@@ -114,8 +112,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             style={styles.circleBtn}
             icon={
               <Ionicons
-                name={isDark ? 'sunny-outline' : 'moon-outline'}
-                size={16}
+                name={isDark ? 'sunny' : 'moon'}
+                size={18}
                 color={isDark ? '#F59E0B' : palette.textPrimary}
               />
             }
@@ -128,56 +126,60 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 
 const styles = StyleSheet.create({
   headerContainer: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingTop: Platform.OS === 'android' ? 10 : 6,
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.05)',
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    minHeight: 44,
   },
   navButtonsGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   circleBtn: {
-    minWidth: 36,
-    minHeight: 36,
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   brandContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   brandIconWrapper: {
-    width: 24,
-    height: 20,
+    width: 22,
+    height: 18,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 6,
   },
   brandText: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
     letterSpacing: -0.5,
   },
   actionButtonsGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   shieldButton: {
-    minHeight: 36,
-    paddingHorizontal: 10,
-    paddingVertical: 0,
-    borderRadius: 18,
+    height: 38,
+    minWidth: 38,
+    borderRadius: 19,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

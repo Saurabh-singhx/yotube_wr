@@ -6,6 +6,8 @@ import {
   StyleSheet,
   Pressable,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -61,7 +63,10 @@ export const SearchModal: React.FC<SearchModalProps> = ({
       transparent
       onRequestClose={onClose}
     >
-      <View style={styles.modalOverlay}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.modalOverlay}
+      >
         <View
           style={[
             styles.modalContent,
@@ -83,6 +88,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
               onPress={onClose}
               size="sm"
               style={styles.closeBtn}
+              borderRadius={18}
               icon={<Ionicons name="close" size={20} color={palette.textPrimary} />}
             />
           </View>
@@ -128,6 +134,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                 <Pressable
                   key={topic.label}
                   onPress={() => handleExecute(topic.query, topic.isUrl)}
+                  style={styles.chipPressable}
                 >
                   <NeumorphicBox
                     depth="low"
@@ -136,7 +143,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                   >
                     <Ionicons
                       name={topic.icon as any}
-                      size={14}
+                      size={15}
                       color={palette.primary}
                       style={{ marginRight: 6 }}
                     />
@@ -149,7 +156,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             </View>
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
@@ -161,7 +168,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    maxHeight: '65%',
+    maxHeight: '70%',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     borderWidth: 1,
@@ -179,9 +186,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
@@ -191,11 +198,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   closeBtn: {
-    minWidth: 36,
-    minHeight: 36,
+    width: 36,
+    height: 36,
     borderRadius: 18,
-    paddingHorizontal: 0,
-    paddingVertical: 0,
   },
   scrollArea: {
     flex: 1,
@@ -209,11 +214,12 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     marginBottom: 20,
+    flexDirection: 'row',
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
-    marginBottom: 12,
+    marginBottom: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -222,11 +228,14 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
+  chipPressable: {
+    marginBottom: 4,
+  },
   topicChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
   topicLabel: {
     fontSize: 13,

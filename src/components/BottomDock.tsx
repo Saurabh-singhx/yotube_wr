@@ -35,23 +35,25 @@ export const BottomDock: React.FC<BottomDockProps> = ({
     <View style={styles.outerContainer} pointerEvents="box-none">
       <NeumorphicBox
         depth="high"
-        borderRadius={28}
-        style={[styles.dockBox, { backgroundColor: palette.surfaceElevated }]}
+        borderRadius={32}
+        style={styles.dockBox}
       >
         <View style={styles.dockRow}>
-          {/* 1. Home */}
+          {/* 1. Home Feed */}
           <NeumorphicButton
             onPress={onGoHome}
             size="sm"
             style={styles.dockItem}
+            borderRadius={23}
             icon={<Ionicons name="home" size={20} color={palette.textPrimary} />}
           />
 
-          {/* 2. Search YouTube / Enter URL */}
+          {/* 2. Search Modal */}
           <NeumorphicButton
             onPress={onOpenSearch}
             size="sm"
             style={styles.dockItem}
+            borderRadius={23}
             icon={<Ionicons name="search" size={20} color={palette.accent} />}
           />
 
@@ -59,38 +61,41 @@ export const BottomDock: React.FC<BottomDockProps> = ({
           <NeumorphicButton
             onPress={onToggleZenMode}
             size="sm"
-            style={[styles.dockItem, isZenActive && styles.activeItem]}
+            style={styles.dockItem}
+            borderRadius={23}
             isActive={isZenActive}
             icon={
               <Ionicons
                 name="leaf"
-                size={18}
+                size={19}
                 color={isZenActive ? palette.success : palette.textPrimary}
               />
             }
           />
 
-          {/* 4. Desktop / Mobile Switch */}
+          {/* 4. Desktop / Mobile Toggle */}
           <NeumorphicButton
             onPress={onToggleDesktopMode}
             size="sm"
-            style={[styles.dockItem, isDesktopMode && styles.activeItem]}
+            style={styles.dockItem}
+            borderRadius={23}
             isActive={isDesktopMode}
             icon={
               <Ionicons
                 name={isDesktopMode ? 'desktop' : 'phone-portrait-outline'}
-                size={18}
+                size={19}
                 color={isDesktopMode ? palette.accent : palette.textPrimary}
               />
             }
           />
 
-          {/* 5. Extension Manager */}
+          {/* 5. Extension Hub */}
           <NeumorphicButton
             onPress={onOpenExtensions}
             size="sm"
             style={styles.dockItem}
-            icon={<Ionicons name="extension-puzzle" size={19} color={palette.textPrimary} />}
+            borderRadius={23}
+            icon={<Ionicons name="extension-puzzle" size={20} color={palette.textPrimary} />}
             badge={activeExtensionsCount}
           />
         </View>
@@ -103,28 +108,29 @@ const styles = StyleSheet.create({
   outerContainer: {
     position: 'absolute',
     bottom: Platform.OS === 'ios' ? 24 : 16,
-    left: 16,
-    right: 16,
+    left: 20,
+    right: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   dockBox: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 28,
+    borderRadius: 32,
+    maxWidth: 360,
+    width: '100%',
   },
   dockRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
+    width: '100%',
   },
   dockItem: {
-    minWidth: 44,
-    minHeight: 44,
-    borderRadius: 22,
-    paddingHorizontal: 10,
-  },
-  activeItem: {
-    borderWidth: 1.5,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
