@@ -26,7 +26,7 @@ const DESKTOP_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 function MainApp() {
-  const { palette, isDark } = useTheme();
+  const { palette, isDark, toggleTheme } = useTheme();
   const { extensions, handleBridgeMessage, toggleExtension } = useExtensions();
 
   const webViewRef = useRef<WebView>(null);
@@ -46,12 +46,12 @@ function MainApp() {
 
   // Compile extension scripts
   const injectedStartScript = useMemo(() => {
-    return ExtensionEngine.buildBeforeContentLoadedScript(extensions, currentUrl);
-  }, [extensions, currentUrl]);
+    return ExtensionEngine.buildBeforeContentLoadedScript(extensions, currentUrl, isDark);
+  }, [extensions, currentUrl, isDark]);
 
   const injectedEndScript = useMemo(() => {
-    return ExtensionEngine.buildAfterContentLoadedScript(extensions, currentUrl);
-  }, [extensions, currentUrl]);
+    return ExtensionEngine.buildAfterContentLoadedScript(extensions, currentUrl, isDark);
+  }, [extensions, currentUrl, isDark]);
 
   // Handle hardware back button on Android
   useEffect(() => {
@@ -136,6 +136,15 @@ function MainApp() {
     }
   };
 
+  const handleToggleTheme = () => {
+    const nextIsDark = !isDark;
+    toggleTheme();
+    triggerHaptic();
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(ExtensionEngine.getThemeToggleScript(nextIsDark));
+    }
+  };
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: palette.surface }]}
@@ -153,6 +162,7 @@ function MainApp() {
         onReload={handleReload}
         onGoHome={handleGoHome}
         onOpenExtensions={() => setIsExtensionsModalOpen(true)}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* Loading Progress Bar */}

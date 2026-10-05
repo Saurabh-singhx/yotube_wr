@@ -14,6 +14,7 @@ interface TopHeaderProps {
   onReload: () => void;
   onGoHome: () => void;
   onOpenExtensions: () => void;
+  onToggleTheme?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -25,6 +26,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onReload,
   onGoHome,
   onOpenExtensions,
+  onToggleTheme,
 }) => {
   const { palette, isDark, toggleTheme } = useTheme();
   const { stats, extensions } = useExtensions();
@@ -107,7 +109,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           />
 
           <NeumorphicButton
-            onPress={toggleTheme}
+            onPress={onToggleTheme || toggleTheme}
             size="sm"
             style={styles.circleBtn}
             icon={

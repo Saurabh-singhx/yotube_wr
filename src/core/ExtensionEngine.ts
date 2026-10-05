@@ -31,16 +31,73 @@ export class ExtensionEngine {
   }
 
   /**
-   * Generates JavaScript injected BEFORE content loads (for network interception, bridge setup, mocks)
+   * Generates dynamic script to immediately switch YouTube between dark and light themes
+   */
+  public static getThemeToggleScript(isDark: boolean): string {
+    return `
+      (function() {
+        var isDark = ${isDark};
+        try {
+          if (isDark) {
+            document.documentElement.setAttribute('dark', 'true');
+            if (document.body) document.body.setAttribute('dark', 'true');
+            document.documentElement.style.colorScheme = 'dark';
+            document.cookie = "PREF=f6=400; path=/; domain=.youtube.com; max-age=31536000";
+          } else {
+            document.documentElement.removeAttribute('dark');
+            if (document.body) document.body.removeAttribute('dark');
+            document.documentElement.style.colorScheme = 'light';
+            document.cookie = "PREF=f6=0; path=/; domain=.youtube.com; max-age=31536000";
+          }
+
+          var styleId = '__rn_theme_style__';
+          var existing = document.getElementById(styleId);
+          if (!existing) {
+            existing = document.createElement('style');
+            existing.id = styleId;
+            (document.head || document.documentElement).appendChild(existing);
+          }
+          existing.textContent = isDark
+            ? "html[dark], [dark] { color-scheme: dark !important; --yt-spec-base-background: #0f0f0f !important; --yt-spec-raised-background: #1f1f1f !important; background-color: #0f0f0f !important; }"
+            : "html:not([dark]) { color-scheme: light !important; }";
+
+          window.dispatchEvent(new Event('yt-navigate-finish'));
+        } catch(e) {
+          console.error('[Theme Toggle Error]', e);
+        }
+      })();
+      true;
+    `;
+  }
+
+  /**
+   * Generates JavaScript injected BEFORE content loads (for network interception, bridge setup, mocks, initial theme)
    */
   public static buildBeforeContentLoadedScript(
     extensions: ExtensionManifest[],
-    currentUrl: string
+    currentUrl: string,
+    isDark: boolean = true
   ): string {
     const matching = this.getMatchingExtensions(extensions, currentUrl);
 
     let script = `
       (function() {
+        // Enforce Initial Theme on Document Start
+        var isDark = ${isDark};
+        try {
+          if (isDark) {
+            document.documentElement.setAttribute('dark', 'true');
+            if (document.body) document.body.setAttribute('dark', 'true');
+            document.documentElement.style.colorScheme = 'dark';
+            document.cookie = "PREF=f6=400; path=/; domain=.youtube.com; max-age=31536000";
+          } else {
+            document.documentElement.removeAttribute('dark');
+            if (document.body) document.body.removeAttribute('dark');
+            document.documentElement.style.colorScheme = 'light';
+            document.cookie = "PREF=f6=0; path=/; domain=.youtube.com; max-age=31536000";
+          }
+        } catch(e) {}
+
         // Setup Native Extension Bridge
         if (!window.__RN_EXTENSION_BRIDGE__) {
           window.__RN_EXTENSION_BRIDGE__ = {
@@ -80,15 +137,33 @@ export class ExtensionEngine {
   }
 
   /**
-   * Generates JavaScript and CSS injected AFTER DOM is ready (for UI styling, DOM observation, skippers)
+   * Generates JavaScript and CSS injected AFTER DOM is ready (for UI styling, DOM observation, skippers, theme persistence)
    */
   public static buildAfterContentLoadedScript(
     extensions: ExtensionManifest[],
-    currentUrl: string
+    currentUrl: string,
+    isDark: boolean = true
   ): string {
     const matching = this.getMatchingExtensions(extensions, currentUrl);
 
-    let cssPayload = '';
+    let cssPayload = isDark
+      ? `
+        html[dark], [dark] {
+          color-scheme: dark !important;
+          --yt-spec-base-background: #0f0f0f !important;
+          --yt-spec-raised-background: #1f1f1f !important;
+          --yt-spec-menu-background: #282828 !important;
+          --yt-spec-text-primary: #f1f1f1 !important;
+          --yt-spec-text-secondary: #aaaaaa !important;
+          background-color: #0f0f0f !important;
+        }
+      `
+      : `
+        html:not([dark]) {
+          color-scheme: light !important;
+        }
+      `;
+
     let jsEndPayload = '';
 
     for (const ext of matching) {
@@ -101,7 +176,6 @@ export class ExtensionEngine {
             ? ext.injectedCSS(settings)
             : ext.injectedCSS;
         if (cssContent && cssContent.trim().length > 0) {
-          // Escape backticks and backslashes for safe template string
           const safeCss = cssContent.replace(/\\/g, '\\\\').replace(/`/g, '\\`');
           cssPayload += `\n/* ${ext.name} */\n${safeCss}\n`;
         }
@@ -121,6 +195,40 @@ export class ExtensionEngine {
 
     return `
       (function() {
+        var isDark = ${isDark};
+
+        // Enforce YouTube Theme
+        function enforceTheme() {
+          try {
+            if (isDark) {
+              document.documentElement.setAttribute('dark', 'true');
+              if (document.body) document.body.setAttribute('dark', 'true');
+              document.documentElement.style.colorScheme = 'dark';
+            } else {
+              document.documentElement.removeAttribute('dark');
+              if (document.body) document.body.removeAttribute('dark');
+              document.documentElement.style.colorScheme = 'light';
+            }
+          } catch(e) {}
+        }
+
+        // Apply theme immediately
+        enforceTheme();
+        window.addEventListener('yt-navigate-finish', enforceTheme);
+        window.addEventListener('DOMContentLoaded', enforceTheme);
+
+        // MutationObserver to keep theme synchronized if YouTube tries to revert
+        try {
+          var themeObserver = new MutationObserver(function() {
+            if (isDark && !document.documentElement.hasAttribute('dark')) {
+              document.documentElement.setAttribute('dark', 'true');
+            } else if (!isDark && document.documentElement.hasAttribute('dark')) {
+              document.documentElement.removeAttribute('dark');
+            }
+          });
+          themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['dark'] });
+        } catch(e) {}
+
         // Inject Combined CSS
         function applyExtensionStyles() {
           var styleId = '__rn_extension_styles__';
