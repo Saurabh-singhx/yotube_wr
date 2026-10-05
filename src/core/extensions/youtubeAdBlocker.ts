@@ -334,7 +334,9 @@ export const youtubeAdBlocker: ExtensionManifest = {
                 if (player) {
                   try {
                     if (typeof player.unMute === 'function') player.unMute();
-                    if (typeof player.setVolume === 'function') player.setVolume(Math.round((savedVolume || 1) * 100));
+                    if (typeof player.getVolume === 'function' && player.getVolume() === 0) {
+                      player.setVolume(Math.round((savedVolume || 1) * 100));
+                    }
                     if (typeof player.playVideo === 'function') player.playVideo();
                   } catch(e) {}
                 }
