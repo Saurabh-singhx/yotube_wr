@@ -1,6 +1,6 @@
 # YouTube_wr — Architecture & Technical Design Document
 
-> **Document Version:** 1.2.0  
+> **Document Version:** 1.3.0  
 > **Status:** Active / Living Document  
 > **Last Updated:** October 2026  
 > **Maintainer:** YouTube_wr Engineering Team  
@@ -60,12 +60,14 @@
 │   │  Document Start: window.__RN_EXTENSION_BRIDGE__                │   │
 │   │  • Clean window environment without fetch monkey-patching      │   │
 │   │  • Early documentElement theme attribute & cookie injection    │   │
+│   │  • Pre-seeded HD player quality local storage                  │   │
 │   └────────────────────────────────┬───────────────────────────────┘   │
 │                                    │                                   │
 │   ┌────────────────────────────────▼───────────────────────────────┐   │
 │   │  DOM / Content Ready: Style & Script Runner                    │   │
 │   │  • Non-destructive CSS rules (<style id="__rn_extension_styles__">)│
 │   │  • Bulletproof Video Ad Skipper (Fast-forward, skip, unmute)   │   │
+│   │  • Auto HD Max Resolution Enforcer (Quality locking engine)    │   │
 │   │  • Zen Focus (Shorts & comments blocker)                       │   │
 │   │  • SPA Hook: Re-apply on 'yt-navigate-finish' & MutationObserver│
 │   └────────────────────────────────────────────────────────────────┘   │
@@ -89,15 +91,36 @@ Through deep debugging across YouTube's web client and leading adblock mechanism
 3. **Buffer Stalls from Artificially Seeking `video.currentTime`:**
    * *Problem:* Jumping directly to `video.duration - 0.05` causes the HTML5 media player to enter an unbuffered wait state when the trailing chunks are not pre-fetched, locking the player in a spinning loader or black screen.
    * *Solution:* Implement a **Fast-Forward & Skip Engine** running at 50ms intervals:
-     - Detects ad status via `.ad-showing`, `.ad-interrupting`, `.ytp-ad-badge`, or skip button presence.
+     - Detects ad status via `.ad-showing`, `.ad-interrupting`, `.ytp-ad-badge` (strictly visible), or skip button presence.
      - Immediately mutes ad audio.
      - Automatically clicks all skip buttons (`.ytp-ad-skip-button`, `.ytp-ad-skip-button-modern`, etc.) and calls `player.skipAd()`.
      - Sets `video.playbackRate = 16.0` and invokes `video.play()` so any unskippable bumpers elapse in under 200ms without buffering stalls.
+     - Guardrail: Only skips short bumper ads (`duration < 120s`), ensuring regular video duration is never truncated.
      - Instantly restores original `playbackRate` (1.0x), volume, and unmuted status as soon as the ad concludes.
 
 ---
 
-## 5. UI/UX & Neumorphic Architecture
+## 5. Video Playback Continuity & Auto High Quality (Auto HD)
+
+### The "Video Restart on In-Page Modals" Bug Resolved
+* **The Root Cause:**
+  When a user opens YouTube in-page dialogs (e.g., Settings, Quality, Playback Speed, Comments, Share, or Description), YouTube mobile web calls `history.pushState(null, '', '#...')`.
+  `onNavigationStateChange` in `react-native-webview` captured this new URL and passed it to `setCurrentUrl(navState.url)`. Because the `<WebView source={{ uri: currentUrl }}>` prop was bound directly to this state variable, React Native updated the `source` prop, causing Android's `RNCWebViewManager` to call native `view.loadUrl(newUrl)`. This forced a full webpage reload and restarted the video from `0:00`.
+* **The Architecture Fix:**
+  1. `<WebView source={webViewSource}>` now references a memoized object that only changes on deliberate top-level user actions (Home button, Search submission, or Desktop Mode toggle).
+  2. `currentUrl` is updated strictly for UI tracking (e.g., Search Modal pre-fill) and is completely decoupled from the WebView's active `source` prop.
+  3. `injectedStartScript` and `injectedEndScript` are memoized on `[extensions, isDark]` rather than `currentUrl`, eliminating script re-evaluations during in-page navigation.
+
+### Always High Quality (Auto HD) Extension (`src/core/extensions/youtubeAutoHD.ts`)
+* Automatically detects the highest available resolution for the current video:
+  - Queries `player.getAvailableQualityLevels()` (e.g. `['hd2160', 'hd1440', 'hd1080', 'hd720', ...]`).
+  - Automatically identifies the maximum resolution and invokes `player.setPlaybackQualityRange(maxLevel, maxLevel)` and `player.setPlaybackQuality(maxLevel)`.
+  - Debounced retry logic runs up to 8 checks on video start/navigation, then enters idle mode to prevent repeated stream rebuffering.
+  - Pre-seeds YouTube's `localStorage` with `{ "data": "highres" }` on document start.
+
+---
+
+## 6. UI/UX & Neumorphic Architecture
 
 ### Stable View Hierarchy & Gesture Responsiveness
 In previous implementations, `NeumorphicBox` toggled between a dual-view hierarchy when `elevated` and a single-view hierarchy when `pressed`. When a user touched a `NeumorphicButton`, React Native's gesture responder tree changed dynamically mid-touch, causing the `Pressable` to cancel the active gesture and silently drop `onPress`.
@@ -126,7 +149,7 @@ In previous implementations, `NeumorphicBox` toggled between a dual-view hierarc
 
 ---
 
-## 6. Dark Mode Synchronization Architecture
+## 7. Dark Mode Synchronization Architecture
 
 YouTube Web does not automatically respond to React Native app theme switches without direct integration. The application implements a multi-tier theme synchronizer:
 
@@ -142,7 +165,7 @@ YouTube Web does not automatically respond to React Native app theme switches wi
 
 ---
 
-## 7. How to Add New Extensions in the Future
+## 8. How to Add New Extensions in the Future
 
 ### Method A: Adding Built-in Extensions (In Code)
 
@@ -177,6 +200,7 @@ YouTube Web does not automatically respond to React Native app theme switches wi
 
    export const DEFAULT_EXTENSIONS: ExtensionManifest[] = [
      youtubeAdBlocker,
+     youtubeAutoHD,
      youtubeDistractionFree,
      youtubeSponsorBlock,
      youtubeMyFeature, // <-- Add here
@@ -204,7 +228,7 @@ YouTube Web does not automatically respond to React Native app theme switches wi
 
 ---
 
-## 8. Quality Verification Checklist
+## 9. Quality Verification Checklist
 
 Before releasing updates or adding new dependencies, run:
 ```bash

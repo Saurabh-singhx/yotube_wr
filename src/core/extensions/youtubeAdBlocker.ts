@@ -103,6 +103,15 @@ export const youtubeAdBlocker: ExtensionManifest = {
         var savedPlaybackRate = 1.0;
         var lastReportTime = 0;
 
+        function isVisible(el) {
+          if (!el) return false;
+          var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+          if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) {
+            return false;
+          }
+          return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+        }
+
         function runAdSkipper() {
           var video = document.querySelector('video');
           var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
@@ -111,28 +120,28 @@ export const youtubeAdBlocker: ExtensionManifest = {
           // Detect ad state using reliable indicators
           var isAd = false;
 
-          // 1. YouTube player class checks
+          // 1. YouTube player class checks (most authoritative)
           if (player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'))) {
             isAd = true;
           }
 
-          // 2. Mobile web video player ad presence
+          // 2. Mobile web video player ad presence (must be strictly visible)
           var adBadge = document.querySelector('.ytp-ad-badge, .ytp-ad-simple-ad-badge, .ytp-ad-duration-remaining');
-          if (adBadge) {
+          if (adBadge && isVisible(adBadge)) {
             isAd = true;
           }
 
-          // 3. Skip button availability
+          // 3. Skip button availability (must be strictly visible)
           var skipBtn = document.querySelector(
             '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-slot button, button.ytp-ad-skip-button'
           );
-          if (skipBtn) {
+          if (skipBtn && isVisible(skipBtn)) {
             isAd = true;
           }
 
-          // 4. Overlay close button
+          // 4. Overlay close button (ad overlays only, must be visible)
           var overlayClose = document.querySelector('.ytp-ad-overlay-close-button');
-          if (overlayClose) {
+          if (overlayClose && isVisible(overlayClose)) {
             try { overlayClose.click(); } catch(e) {}
           }
 
@@ -167,8 +176,9 @@ export const youtubeAdBlocker: ExtensionManifest = {
               try { video.play().catch(function(){}); } catch(e) {}
             }
 
-            // Jump close to the end to complete unskippable bumpers in 1 frame
-            if (isFinite(video.duration) && video.duration > 0.5) {
+            // Jump close to the end ONLY for short bumper ads (< 120s)
+            // Never jump on normal long videos
+            if (isFinite(video.duration) && video.duration > 0.5 && video.duration < 120) {
               if (video.currentTime < video.duration - 0.2) {
                 video.currentTime = video.duration - 0.1;
               }

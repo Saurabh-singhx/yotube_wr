@@ -44,14 +44,20 @@ function MainApp() {
   const [isCustomExtensionModalOpen, setIsCustomExtensionModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
 
-  // Compile extension scripts
+  // Stable WebView source that only changes when desktop/mobile mode is explicitly toggled.
+  // This prevents the WebView from reloading the webpage and restarting video playback on in-page events.
+  const webViewSource = useMemo(() => {
+    return { uri: isDesktopMode ? 'https://www.youtube.com' : 'https://m.youtube.com' };
+  }, [isDesktopMode]);
+
+  // Compile extension scripts (only recomputed when extensions or dark theme change)
   const injectedStartScript = useMemo(() => {
-    return ExtensionEngine.buildBeforeContentLoadedScript(extensions, currentUrl, isDark);
-  }, [extensions, currentUrl, isDark]);
+    return ExtensionEngine.buildBeforeContentLoadedScript(extensions, 'https://m.youtube.com', isDark);
+  }, [extensions, isDark]);
 
   const injectedEndScript = useMemo(() => {
-    return ExtensionEngine.buildAfterContentLoadedScript(extensions, currentUrl, isDark);
-  }, [extensions, currentUrl, isDark]);
+    return ExtensionEngine.buildAfterContentLoadedScript(extensions, 'https://m.youtube.com', isDark);
+  }, [extensions, isDark]);
 
   // Handle hardware back button on Android
   useEffect(() => {
@@ -200,7 +206,7 @@ function MainApp() {
       <View style={[styles.webViewContainer, { backgroundColor: palette.background }]}>
         <WebView
           ref={webViewRef}
-          source={{ uri: currentUrl }}
+          source={webViewSource}
           userAgent={isDesktopMode ? DESKTOP_USER_AGENT : MOBILE_USER_AGENT}
           injectedJavaScriptBeforeContentLoaded={injectedStartScript}
           injectedJavaScript={injectedEndScript}
@@ -214,7 +220,7 @@ function MainApp() {
           onNavigationStateChange={(navState) => {
             setCanGoBack(navState.canGoBack);
             setCanGoForward(navState.canGoForward);
-            if (navState.url && navState.url !== currentUrl) {
+            if (navState.url) {
               setCurrentUrl(navState.url);
             }
           }}

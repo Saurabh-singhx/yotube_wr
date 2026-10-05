@@ -2,9 +2,11 @@ import { ExtensionManifest } from '../../types/extension';
 import { youtubeAdBlocker } from './youtubeAdBlocker';
 import { youtubeDistractionFree } from './youtubeDistractionFree';
 import { youtubeSponsorBlock } from './youtubeSponsorBlock';
+import { youtubeAutoHD } from './youtubeAutoHD';
 
 export const DEFAULT_EXTENSIONS: ExtensionManifest[] = [
   youtubeAdBlocker,
+  youtubeAutoHD,
   youtubeDistractionFree,
   youtubeSponsorBlock,
 ];
