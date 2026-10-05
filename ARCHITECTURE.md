@@ -1,6 +1,6 @@
 # YouTube_wr — Architecture & Technical Design Document
 
-> **Document Version:** 1.1.0  
+> **Document Version:** 1.2.0  
 > **Status:** Active / Living Document  
 > **Last Updated:** October 2026  
 > **Maintainer:** YouTube_wr Engineering Team  
@@ -23,7 +23,7 @@
 | :--- | :--- | :--- |
 | **Framework** | **Expo SDK 57 / React Native 0.86** | Provides high-performance Continuous Native Generation (CNG), cross-platform mobile rendering, and access to modern native hardware APIs (Haptics, Status Bar, Safe Area) without Xcode/Android Studio manual configuration overhead. |
 | **Language** | **TypeScript 5.x / 6.x (Strict)** | Guarantees type safety across extension manifests, setting schemas, bridge events, and neumorphic style contracts. |
-| **Browser Engine** | **`react-native-webview` (v13.x)** | Chosen over building a custom Chromium/Gecko fork (which would add ~150MB to app size and face severe App Store rejections) and over native video players (which frequently break when YouTube alters stream cipher signatures). WebViews receive native platform hardware acceleration, full HTML5 video support, and two-way script injection capabilities. |
+| **Browser Engine** | **`react-native-webview` (v13.x)** | Chosen over building a custom Chromium/Gecko fork (which would add ~150MB to app size and face severe App Store rejections) and over native video players (which frequently break when YouTube alters stream cipher signatures). WebViews receive native platform hardware acceleration (`androidLayerType="hardware"`), full HTML5 video support, and two-way script injection capabilities. |
 | **Design Language** | **Neumorphism (Soft UI)** | Chosen over standard Material or Flat design to provide an elevated, modern tactile experience suited for audio/video media controls (e.g., sunken inputs, extruded knobs, tactile haptic toggles). |
 | **Storage Engine** | **`@react-native-async-storage`** | Lightweight, key-value asynchronous storage without native database dependencies (SQLite/Realm), ideal for saving extension manifests, user configurations, theme preferences, and ad-blocking statistics. |
 | **Haptics** | **`expo-haptics`** | Provides tactile feedback on button presses, search actions, and switch toggles, enhancing the neumorphic physical feel. |
@@ -58,17 +58,16 @@
 │                                                                        │
 │   ┌────────────────────────────────────────────────────────────────┐   │
 │   │  Document Start: window.__RN_EXTENSION_BRIDGE__                │   │
-│   │  • Monkey-patch fetch() & XMLHttpRequest.prototype.open/send   │   │
-│   │  • Intercept & drop external Google Ad domains                 │   │
-│   │  • Scrub player JSON (strip adPlacements & playerAds)          │   │
+│   │  • Clean window environment without fetch monkey-patching      │   │
+│   │  • Early documentElement theme attribute & cookie injection    │   │
 │   └────────────────────────────────┬───────────────────────────────┘   │
 │                                    │                                   │
 │   ┌────────────────────────────────▼───────────────────────────────┐   │
 │   │  DOM / Content Ready: Style & Script Runner                    │   │
-│   │  • Inject combined CSS (<style id="__rn_extension_styles__">)  │   │
+│   │  • Non-destructive CSS rules (<style id="__rn_extension_styles__">)│
 │   │  • Bulletproof Video Ad Skipper (Fast-forward, skip, unmute)   │   │
 │   │  • Zen Focus (Shorts & comments blocker)                       │   │
-│   │  • SPA Hook: Re-apply on 'yt-navigate-finish' & 'popstate'     │   │
+│   │  • SPA Hook: Re-apply on 'yt-navigate-finish' & MutationObserver│
 │   └────────────────────────────────────────────────────────────────┘   │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -77,59 +76,55 @@
 
 ## 4. Multi-Layer AdBlocker & Black Screen Resolution
 
-### The "Black Screen" Problem Analyzed
+### Root Cause Analysis of the "Black Screen" Stall
 
-Through extensive research across GitHub repositories (including `uBlockOrigin/uAssets`, `TheRealJoelmatic/RemoveAdblockThing`, and `0x48piraj/fadblock`), the infamous YouTube ad blocker "black screen" or "5-second stall" is caused by three distinct issues:
+Through deep debugging across YouTube's web client and leading adblock mechanisms (`uBlockOrigin/uAssets`, `TheRealJoelmatic/RemoveAdblockThing`, `0x48piraj/fadblock`), the infamous YouTube ad blocker "black screen" was identified as being caused by three fatal flaws:
 
-1. **CSS Over-blocking (`.video-ads { display: none !important; }`):**
-   * *Problem:* `.video-ads` and `.ytp-ad-module` are containers inside YouTube's HTML5 player that house ad video elements and skip controls. Setting `display: none` turns the player area into a black void while the ad continues to play in the background, simultaneously making the skip button invisible and unclickable.
-   * *Solution:* Never apply `display: none` to `.video-ads` or the video player module. Only target out-of-player cosmetic banners and promoted items.
-
-2. **Player Desynchronization via `video.currentTime`:**
-   * *Problem:* Setting `video.currentTime = video.duration - 0.05` or `99999` causes YouTube's media buffer to stall waiting for unbuffered ad chunks, leaving the player stuck on a black/frozen frame in an infinite loop.
-   * *Solution:* Combine automatic skip-button clicks (`.ytp-ad-skip-button`), native `player.skipAd()` API invocation, and setting `video.playbackRate = 16.0` with `video.play()` so the ad frames fly by in under 200ms without buffering stalls.
-
-3. **Telemetry & Heartbeat Blocking Stalls:**
-   * *Problem:* Blocking YouTube's internal telemetry (`/api/stats/qoe`, `/api/stats/playback`) with empty `{}` responses triggers YouTube's anti-adblock detection, causing the server to intentionally pause the video stream for 5-10 seconds.
-   * *Solution:* Block external Google ad networks (`googleads.g.doubleclick.net`, `pubads.g.doubleclick.net`, `adservice.google.com`), while letting internal streaming telemetry pass cleanly.
-
-```
-Incoming Request ──► [ External Ad Domain? ] ──► Yes ──► Drop & Return 200 {}
-                            │ No
-                            ▼
-                     [ Normal YouTube Video Stream ]
-                            │
-                            ▼
-              [ DOM Video Skipper Watcher (100ms) ]
-                            │
-             ┌──────────────┴──────────────┐
-             │                             │
-    [ Ad Playing? ]               [ Ad Finished? ]
-             │                             │
-    • Mute audio                  • Restore original playbackRate (1.0x)
-    • Rate = 16.0x                • Restore unmuted state
-    • Trigger video.play()        • Resume main video immediately
-    • Click skip buttons
-    • Call player.skipAd()
-```
+1. **Monkey-Patching `fetch()` and `XMLHttpRequest` with Compressed Payloads:**
+   * *Problem:* Previous adblock implementations monkey-patched `window.fetch` to intercept `youtubei/v1/player`. When inspecting and reconstructing the response via `new Response(JSON.stringify(data), { headers: response.headers })`, the original `content-encoding: gzip` or `br` header remained in place. The browser's native networking layer attempted decompression on uncompressed text, failing with `net::ERR_CONTENT_DECODING_FAILED`. As a result, the video player never received valid streaming URLs and stalled on a pitch black box.
+   * *Solution:* Leave native `window.fetch` completely untouched. Never manipulate `/youtubei/v1/player` HTTP streams.
+2. **CSS Over-blocking (`.video-ads`, `[id^="ad_"]`, `.ytp-ad-module`):**
+   * *Problem:* `.video-ads` and `.ytp-ad-module` are integral containers inside YouTube's HTML5 video player that house the video element and the skip button overlay. Setting `display: none !important` on them conceals the video frame itself, creating a black hole while the ad audio plays in the background, and hides the skip button so it can never be clicked.
+   * *Solution:* Never apply `display: none` to `.video-ads` or video player modules. Target only out-of-player cosmetic elements (e.g. `ytd-promoted-sparkles-web-renderer`, `ytd-display-ad-renderer`, `#masthead-ad`).
+3. **Buffer Stalls from Artificially Seeking `video.currentTime`:**
+   * *Problem:* Jumping directly to `video.duration - 0.05` causes the HTML5 media player to enter an unbuffered wait state when the trailing chunks are not pre-fetched, locking the player in a spinning loader or black screen.
+   * *Solution:* Implement a **Fast-Forward & Skip Engine** running at 50ms intervals:
+     - Detects ad status via `.ad-showing`, `.ad-interrupting`, `.ytp-ad-badge`, or skip button presence.
+     - Immediately mutes ad audio.
+     - Automatically clicks all skip buttons (`.ytp-ad-skip-button`, `.ytp-ad-skip-button-modern`, etc.) and calls `player.skipAd()`.
+     - Sets `video.playbackRate = 16.0` and invokes `video.play()` so any unskippable bumpers elapse in under 200ms without buffering stalls.
+     - Instantly restores original `playbackRate` (1.0x), volume, and unmuted status as soon as the ad concludes.
 
 ---
 
-## 5. UI Layout & Navigation Architecture
+## 5. UI/UX & Neumorphic Architecture
 
-### Clean Top Header (`src/components/TopHeader.tsx`)
-The top header is deliberately minimal to maximize video viewing area:
-* **Left:** Hardware-accelerated Back (`<`), Forward (`>`), and Reload (`↻`) buttons.
-* **Center:** `YT_wr` brand logo (tap to navigate Home).
-* **Right:** Live AdShield Protection counter badge and Dark/Light Neumorphic mode toggle.
+### Stable View Hierarchy & Gesture Responsiveness
+In previous implementations, `NeumorphicBox` toggled between a dual-view hierarchy when `elevated` and a single-view hierarchy when `pressed`. When a user touched a `NeumorphicButton`, React Native's gesture responder tree changed dynamically mid-touch, causing the `Pressable` to cancel the active gesture and silently drop `onPress`.
 
-### Bottom Dock with Integrated Search (`src/components/BottomDock.tsx`)
-Controls are consolidated into a tactile floating dock at the bottom:
-1. **Home (`home`):** Instant return to YouTube home feed.
-2. **Search (`search`):** Opens the Neumorphic Search Modal to search YouTube or enter any custom URL.
-3. **Zen Focus (`leaf`):** Instantly toggles distraction-free mode (hiding Shorts, comments, and recommendations).
-4. **Desktop / Mobile Toggle (`desktop` / `phone-portrait`):** Switches User-Agent between desktop and mobile layouts.
-5. **Extensions Manager (`extension-puzzle`):** Opens the extension store, live statistics, and custom script builder.
+**The Solution:**
+1. `NeumorphicBox` maintains a strictly identical 2-View hierarchy (`lightShadowWrapper` -> `container`) across both `elevated` and `pressed` states.
+2. `StyleSheet.flatten` extracts outer layout properties (`margin`, `flex`, `width`, `height`, `zIndex`) for the outer shadow wrapper, while inner surface properties (`padding`, `alignItems`, `justifyContent`, `backgroundColor`, `borderRadius`, `borderWidth`) are assigned to the inner container.
+3. If fixed dimensions (`width: 38, height: 38` or `46x46`) or `flex: 1` are passed, the inner container automatically expands to 100% with centered alignment, eliminating off-center clipping and misalignments.
+4. Generous `hitSlop` (`top: 8, bottom: 8, left: 8, right: 8`) guarantees immediate responsiveness on mobile touch screens.
+
+### Streamlined Navigation Layout
+* **Top Header (`src/components/TopHeader.tsx`):**
+  - Removed clunky search bar from top to maximize web view real estate.
+  - Multi-layer navigation fallback: executes both native `webViewRef.current.goBack()` and in-page `window.history.back()` to reliably support YouTube Single Page Application (SPA) routing.
+  - Quick access to Protection Overview and Dark/Light theme toggle.
+* **Bottom Dock (`src/components/BottomDock.tsx`):**
+  - High-depth floating pill housing 5 evenly-spaced 46x46 circular tactile buttons:
+    1. **Home:** Instant return to YouTube home feed.
+    2. **Search:** Opens the Neumorphic Search Modal.
+    3. **Zen Focus:** Distraction-free mode toggle (Shorts, comments, recommendations).
+    4. **Desktop / Mobile:** Switches User-Agent between desktop and mobile formats.
+    5. **Extensions Hub:** Displays active badge count; opens extensions manager and custom script builder.
+* **Search Modal (`src/components/SearchModal.tsx`):**
+  - Features quick topic chips (`Trending`, `Music`, `Gaming`, `Podcasts`, `Lofi Chill`, `Tech Reviews`).
+  - Supports search queries and direct URL navigation with `KeyboardAvoidingView`.
+
+---
 
 ## 6. Dark Mode Synchronization Architecture
 
@@ -209,7 +204,7 @@ YouTube Web does not automatically respond to React Native app theme switches wi
 
 ---
 
-## 7. Future Maintenance & Verification Checklist
+## 8. Quality Verification Checklist
 
 Before releasing updates or adding new dependencies, run:
 ```bash
