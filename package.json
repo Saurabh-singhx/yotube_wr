@@ -1,6 +1,6 @@
 {
   "name": "youtube_wr",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "index.ts",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -33,7 +33,9 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "jest"
+    "test": "jest",
+    "version:bump": "node scripts/bump-version.js",
+    "build:apk": "node scripts/build-apk.js"
   },
   "jest": {
     "preset": "jest-expo",

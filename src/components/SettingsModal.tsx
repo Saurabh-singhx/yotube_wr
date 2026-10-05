@@ -14,6 +14,7 @@ import { NeumorphicBox } from './neumorphic/NeumorphicBox';
 import { NeumorphicButton } from './neumorphic/NeumorphicButton';
 import { NeumorphicSwitch } from './neumorphic/NeumorphicSwitch';
 import { triggerHaptic } from '../utils/haptics';
+import { APP_VERSION, APP_BUILD } from '../constants/version';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -345,7 +346,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* Footer */}
             <View style={styles.footer}>
               <Text style={[styles.footerText, { color: palette.textMuted }]}>
-                YouTube_wr v1.0.0 • Pure 2-Finger Zoom Enabled
+                YouTube_wr v{APP_VERSION} ({APP_BUILD}) • Pure 2-Finger Zoom Enabled
               </Text>
             </View>
           </ScrollView>
