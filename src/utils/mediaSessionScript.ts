@@ -388,6 +388,12 @@ export function getMediaObserverScript(): string {
             attachToVideo(v);
             unmuteAudio(v);
             reportMediaState(v, true);
+          } else {
+            if (window.__RN_EXTENSION_BRIDGE__) {
+              window.__RN_EXTENSION_BRIDGE__.send('media-session', 'MEDIA_STATE_UPDATE', {
+                isPlaying: false
+              });
+            }
           }
         }, 600);
       });

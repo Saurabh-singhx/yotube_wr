@@ -52,6 +52,16 @@ describe('Navigation & Dock Components Logic', () => {
       expect(shouldRenderDock(false)).toBe(true);
       expect(shouldRenderDock(true)).toBe(false);
     });
+
+    it('collapses to a mini icon when a video is playing unless manually expanded', () => {
+      const getIsCollapsed = (isVideoPlaying: boolean, isManuallyExpanded: boolean) =>
+        isVideoPlaying && !isManuallyExpanded;
+
+      expect(getIsCollapsed(false, false)).toBe(false); // Paused/stopped: fully expanded
+      expect(getIsCollapsed(true, false)).toBe(true);   // Video playing: collapses to mini icon
+      expect(getIsCollapsed(true, true)).toBe(false);   // Video playing & tapped: manually expanded
+      expect(getIsCollapsed(false, true)).toBe(false);  // Video paused after manual expand: fully expanded
+    });
   });
 
   describe('SettingsModal Action Logic', () => {

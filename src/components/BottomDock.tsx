@@ -1,10 +1,14 @@
-import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, Platform, LayoutAnimation, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { NeumorphicBox } from './neumorphic/NeumorphicBox';
 import { NeumorphicButton } from './neumorphic/NeumorphicButton';
 import { triggerHaptic } from '../utils/haptics';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 interface BottomDockProps {
   canGoBack: boolean;
@@ -15,6 +19,7 @@ interface BottomDockProps {
   onReload: () => void;
   onGoHome: () => void;
   onOpenSettings: () => void;
+  isVideoPlaying?: boolean;
 }
 
 export const BottomDock: React.FC<BottomDockProps> = ({
@@ -26,15 +31,81 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   onReload,
   onGoHome,
   onOpenSettings,
+  isVideoPlaying = false,
 }) => {
   const { palette } = useTheme();
+  const [isManuallyExpanded, setIsManuallyExpanded] = useState(false);
+
+  // If video is playing and user hasn't explicitly tapped to expand, shrink to mini icon
+  const isCollapsed = isVideoPlaying && !isManuallyExpanded;
+
+  const prevPlayingRef = useRef(isVideoPlaying);
+  useEffect(() => {
+    if (prevPlayingRef.current !== isVideoPlaying) {
+      prevPlayingRef.current = isVideoPlaying;
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
+  }, [isVideoPlaying]);
+
+  // If manually expanded while video is playing, auto-collapse after 5s of inactivity
+  useEffect(() => {
+    if (isVideoPlaying && isManuallyExpanded) {
+      const timer = setTimeout(() => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setIsManuallyExpanded(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [isVideoPlaying, isManuallyExpanded]);
+
+  const handleExpand = () => {
+    triggerHaptic();
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setIsManuallyExpanded(true);
+  };
+
+  const handleCollapse = () => {
+    triggerHaptic();
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setIsManuallyExpanded(false);
+  };
+
+  if (isCollapsed) {
+    return (
+      <View style={styles.outerContainer} pointerEvents="box-none">
+        <NeumorphicBox
+          depth="high"
+          borderRadius={26}
+          style={[styles.miniDockBox, { backgroundColor: palette.surface }]}
+        >
+          <NeumorphicButton
+            onPress={handleExpand}
+            size="sm"
+            style={styles.miniDockButton}
+            borderRadius={22}
+            icon={
+              <Ionicons
+                name="chevron-up"
+                size={22}
+                color={palette.primary}
+              />
+            }
+          />
+        </NeumorphicBox>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.outerContainer} pointerEvents="box-none">
       <NeumorphicBox
         depth="high"
         borderRadius={32}
-        style={[styles.dockBox, { backgroundColor: palette.surface }]}
+        style={[
+          styles.dockBox,
+          { backgroundColor: palette.surface },
+          isVideoPlaying && styles.dockBoxWithCollapse,
+        ]}
       >
         <View style={styles.dockRow}>
           {/* 1. Back Button */}
@@ -113,7 +184,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
             }
           />
 
-          {/* 5. Settings Button (replaces other webapp selector button) */}
+          {/* 5. Settings Button */}
           <NeumorphicButton
             onPress={() => {
               triggerHaptic();
@@ -130,6 +201,23 @@ export const BottomDock: React.FC<BottomDockProps> = ({
               />
             }
           />
+
+          {/* 6. Collapse Button (shown when manually expanded during playback) */}
+          {isVideoPlaying && isManuallyExpanded && (
+            <NeumorphicButton
+              onPress={handleCollapse}
+              size="sm"
+              style={styles.collapseItem}
+              borderRadius={21}
+              icon={
+                <Ionicons
+                  name="chevron-down"
+                  size={20}
+                  color={palette.primary}
+                />
+              }
+            />
+          )}
         </View>
       </NeumorphicBox>
     </View>
@@ -145,12 +233,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 100,
   },
+  miniDockBox: {
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    borderRadius: 26,
+    width: 52,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniDockButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
   dockBox: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 32,
     minWidth: 310,
     maxWidth: 360,
+  },
+  dockBoxWithCollapse: {
+    minWidth: 340,
+    maxWidth: 395,
   },
   dockRow: {
     flexDirection: 'row',
@@ -167,6 +273,11 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
+  },
+  collapseItem: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
   },
   disabledItem: {
     opacity: 0.38,

@@ -55,6 +55,7 @@ function MainApp() {
   const [progress, setProgress] = useState(0);
 
   const [isDesktopMode, setIsDesktopMode] = useState(false);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
   // Picture-in-Picture (PiP) State
   const [pipVideoId, setPipVideoId] = useState<string | null>(null);
@@ -343,7 +344,10 @@ function MainApp() {
                 if (typeof p.artist === 'string' && p.artist) mediaMetadataRef.current.artist = p.artist;
                 if (typeof p.album === 'string' && p.album) mediaMetadataRef.current.album = p.album;
                 if (typeof p.thumbnailUrl === 'string' && p.thumbnailUrl) mediaMetadataRef.current.thumbnailUrl = p.thumbnailUrl;
-                if (typeof p.isPlaying === 'boolean') mediaMetadataRef.current.isPlaying = p.isPlaying;
+                if (typeof p.isPlaying === 'boolean') {
+                  mediaMetadataRef.current.isPlaying = p.isPlaying;
+                  setIsVideoPlaying(p.isPlaying);
+                }
                 if (typeof p.position === 'number') mediaMetadataRef.current.position = p.position;
                 if (typeof p.duration === 'number') mediaMetadataRef.current.duration = p.duration;
                 if (typeof p.speed === 'number') mediaMetadataRef.current.speed = p.speed;
@@ -364,6 +368,8 @@ function MainApp() {
               const vid = extractVideoId(navState.url);
               if (vid) {
                 lastVideoIdRef.current = vid;
+              } else {
+                setIsVideoPlaying(false);
               }
             }
           }}
@@ -408,6 +414,7 @@ function MainApp() {
           onReload={handleReload}
           onGoHome={handleGoHome}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
+          isVideoPlaying={isVideoPlaying}
         />
       )}
 
