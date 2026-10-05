@@ -131,14 +131,23 @@ Controls are consolidated into a tactile floating dock at the bottom:
 4. **Desktop / Mobile Toggle (`desktop` / `phone-portrait`):** Switches User-Agent between desktop and mobile layouts.
 5. **Extensions Manager (`extension-puzzle`):** Opens the extension store, live statistics, and custom script builder.
 
-### Search Modal (`src/components/SearchModal.tsx`)
-* Recessed Neumorphic text input with automatic focus.
-* Quick category chips (Trending, Music, Gaming, Podcasts, Lofi Chill, Tech).
-* Smart query parser: detects URLs vs search queries and routes accordingly.
+## 6. Dark Mode Synchronization Architecture
+
+YouTube Web does not automatically respond to React Native app theme switches without direct integration. The application implements a multi-tier theme synchronizer:
+
+1. **Root Attribute Injection (`document_start` & `document_end`):**
+   * Forces `dark="true"` on `<html>` and `<body>`, which YouTube's Polymer/Web components rely on to activate dark design tokens (`--yt-spec-base-background`, `--yt-spec-text-primary`).
+   * Explicitly sets `document.documentElement.style.colorScheme = 'dark'`.
+2. **Cookie State Persistence:**
+   * Sets `document.cookie = "PREF=f6=400; domain=.youtube.com; path=/; max-age=31536000"` so YouTube's server-rendered HTML responds with dark theme tokens immediately upon navigation.
+3. **MutationObserver Guardian:**
+   * YouTube's client-side SPA scripts periodically reset attributes on `<html>`. A lightweight `MutationObserver` on `document.documentElement` monitors the `dark` attribute and immediately re-applies it if YouTube attempts to remove it.
+4. **Instant Dynamic Theme Toggle (`ExtensionEngine.getThemeToggleScript`):**
+   * When the user taps the theme button in `TopHeader`, React Native executes an in-page script that toggles `dark` attributes, swaps `__rn_theme_style__` CSS variables, and fires a `yt-navigate-finish` event. YouTube transitions instantly between Dark and Light mode without a page reload.
 
 ---
 
-## 6. How to Add New Extensions in the Future
+## 7. How to Add New Extensions in the Future
 
 ### Method A: Adding Built-in Extensions (In Code)
 
