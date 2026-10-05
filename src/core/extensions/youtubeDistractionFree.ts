@@ -9,7 +9,7 @@ export const youtubeDistractionFree: ExtensionManifest = {
   icon: 'leaf',
   category: 'ui',
   enabled: true,
-  urlMatches: ['*://*.youtube.com/*', '*://m.youtube.com/*'],
+  urlMatches: ['*://*.youtube.com/*', '*://m.youtube.com/*', '*://*.youtube.com*'],
   runAt: 'both',
   settings: [
     {
@@ -58,7 +58,6 @@ export const youtubeDistractionFree: ExtensionManifest = {
         ytm-reel-shelf-renderer,
         ytd-rich-shelf-renderer[is-shorts],
         ytm-pivot-bar-item-renderer[aria-label*="Shorts"],
-        ytm-pivot-bar-item-renderer:nth-child(2),
         ytd-guide-entry-renderer a[title="Shorts"],
         ytd-mini-guide-entry-renderer[aria-label="Shorts"],
         ytd-rich-item-renderer:has(a[href*="/shorts/"]),

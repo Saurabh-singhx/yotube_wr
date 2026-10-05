@@ -9,7 +9,7 @@ export const youtubeAutoHD: ExtensionManifest = {
   icon: 'videocam',
   category: 'playback',
   enabled: true,
-  urlMatches: ['*://*.youtube.com/*', '*://m.youtube.com/*'],
+  urlMatches: ['*://*.youtube.com/*', '*://m.youtube.com/*', '*://*.youtube.com*'],
   runAt: 'both',
   settings: [
     {
@@ -76,20 +76,26 @@ export const youtubeAutoHD: ExtensionManifest = {
           // Limit attempts to avoid excessive overhead once locked
           if (attemptsForCurrentVideo >= 8) return;
 
-          var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+          var player = document.getElementById('movie_player') ||
+                       document.getElementById('player') ||
+                       document.querySelector('.html5-video-player') ||
+                       (document.querySelector('video') ? document.querySelector('video').closest('.html5-video-player, #player, .player-container') : null);
           if (!player) return;
 
           if (typeof player.getAvailableQualityLevels === 'function') {
             var levels = player.getAvailableQualityLevels();
             if (levels && levels.length > 0) {
-              // Quality levels are sorted highest to lowest (e.g. ['highres', 'hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small'])
+              // Mobile-optimized quality selection: prioritize crisp 1080p/720p without buffering stalls
               var targetQuality = null;
-              for (var i = 0; i < levels.length; i++) {
-                var q = levels[i];
-                if (q && q !== 'auto') {
-                  targetQuality = q;
+              var preferred = ['hd1080', 'hd720', 'large', 'medium', 'highres', 'hd1440'];
+              for (var p = 0; p < preferred.length; p++) {
+                if (levels.indexOf(preferred[p]) !== -1) {
+                  targetQuality = preferred[p];
                   break;
                 }
+              }
+              if (!targetQuality) {
+                targetQuality = levels[0];
               }
 
               if (targetQuality) {

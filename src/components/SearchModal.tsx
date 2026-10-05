@@ -15,6 +15,7 @@ import { NeumorphicBox } from './neumorphic/NeumorphicBox';
 import { NeumorphicButton } from './neumorphic/NeumorphicButton';
 import { NeumorphicInput } from './neumorphic/NeumorphicInput';
 import { triggerHaptic } from '../utils/haptics';
+import { formatNavUrl, isLikelyUrl, getYouTubeSearchUrl } from '../utils/urlHelper';
 
 interface SearchModalProps {
   visible: boolean;
@@ -117,20 +118,12 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   const [inputVal, setInputVal] = useState('');
 
   const handleOpenUrl = (target: string) => {
-    let url = target.trim();
-    if (!url) return;
+    const formatted = formatNavUrl(target);
+    if (!formatted) return;
 
     triggerHaptic();
     onClose();
-
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      onNavigate(url);
-    } else if (url.includes('.') && !url.includes(' ')) {
-      onNavigate('https://' + url);
-    } else {
-      // Default to Google search for arbitrary queries
-      onNavigate(`https://www.google.com/search?q=${encodeURIComponent(url)}`);
-    }
+    onNavigate(formatted);
   };
 
   const handleSearchYouTube = (query: string) => {
@@ -138,16 +131,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     if (!text) return;
     triggerHaptic();
     onClose();
-    onNavigate(`https://m.youtube.com/results?search_query=${encodeURIComponent(text)}`);
-  };
-
-  const isLikelyUrl = (text: string) => {
-    const trimmed = text.trim();
-    return (
-      trimmed.startsWith('http://') ||
-      trimmed.startsWith('https://') ||
-      (trimmed.includes('.') && !trimmed.includes(' '))
-    );
+    onNavigate(getYouTubeSearchUrl(text));
   };
 
   return (

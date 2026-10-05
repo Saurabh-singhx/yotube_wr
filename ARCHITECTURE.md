@@ -1,260 +1,157 @@
-# YouTube_wr — Architecture & Technical Design Document
+# YouTube_wr Architecture & Technical Design Document
 
-> **Document Version:** 1.4.0  
-> **Status:** Active / Living Document  
-> **Last Updated:** October 2026  
-> **Maintainer:** YouTube_wr Engineering Team  
+> **Document Version:** 2.4.0  
+> **Status:** Active / Production Ready  
+> **Repository:** `/home/saurabh/coding/YouTube_wr`  
 
 ---
 
 ## 1. Executive Summary & Philosophy
 
-`YouTube_wr` is a modern mobile YouTube & WebApp client designed to combine the flexibility of YouTube's web platform with native mobile enhancements:
-1. **Uncompromised Ad & Tracker Blocking:** Complete removal of video pre-roll/mid-roll ads, sponsored feed banners, search ads, and Google telemetry without black screen stalls or playback freezes.
-2. **Multi-WebApp & Browser Hub:** One-tap switching to other popular webapps (Instagram, Twitter/X, Reddit, TikTok, Twitch, etc.) or arbitrary URLs with Google/YouTube search support.
-3. **Picture-in-Picture (PiP) Floating Miniplayer:** Continuous background video playback in a floating Neumorphic miniplayer while browsing other webapps or navigating feeds.
-4. **Pluggable Extension Architecture:** A modular, Userscript-inspired extension engine that allows both pre-compiled and user-defined scripts/styles to run seamlessly in the web sandbox.
-5. **Tactile Neumorphic (Soft UI) Interface:** A cohesive visual design language employing dual-light elevation, concave pressed states, and spring-driven controls that deliver a unique tactile feel.
+`YouTube_wr` is a modern mobile YouTube & WebApps client engineered with a **Soft Neumorphic UI**, an **extensible Userscript Extension Engine**, **Sub-frame AdShield Pro Ad Blocker**, **Authentic 2-Finger Pinch-to-Zoom (Fit to Screen)**, **Orientation Adaptive Ergonomics**, **Floating Picture-in-Picture (PiP)**, and a **WebApps Hub**.
+
+### Core Pillars
+1. **Uncompromised Ad & Tracker Blocking:** Complete removal of video pre-roll/mid-roll ads, unskippable bumpers, sponsored feed banners, search ads, and Google telemetry without requiring device rooting or private DNS. Expanded mobile skip button selectors and single-set playback rate controls prevent MediaCodec freezes while showing "Skip ad". Suppresses YouTube Mobile's persistent "Open app" buttons and popups.
+2. **Zero Black Screen Stalls on Cold Start & Ad Transitions:** Guarded media pipeline ensuring that cold-cache video playback never aborts network requests during initial connection buffering (`readyState >= 2`). Throttled execution and once-per-ad seek latching prevent seek-loop buffering freezes and ANR issues.
+3. **Full-Bleed Viewport (Zero Header Clutter):** The top header component has been removed entirely, giving 100% of the upper screen real estate directly to YouTube content.
+4. **Unified Bottom Navigation & Settings Dock:**
+   - **Back** (`chevron-back`)
+   - **Forward** (`chevron-forward`)
+   - **Home** (`home`)
+   - **Reload / Refresh** (`reload`)
+   - **Settings** (`settings-outline`) — opens the unified Settings & Tools Modal housing Desktop Mode, Zen Mode, Theme (Dark/Light), PiP, and the WebApps Hub.
+5. **Authentic 2-Finger Pinch-to-Zoom (Zero Glitch / Full Container Sizing):**
+   - Ghost click suppression: swallows touch releases and suppresses synthesized clicks for 500ms post-pinch so YouTube controls or exit-fullscreen buttons are never accidentally triggered.
+   - Settle logic maintains the user's custom pinch zoom level without abrupt snapping back to 1.0x.
+   - Eradicates YouTube Mobile's 336px metadata split-view (`.mweb-phone-metadata-split-view`) in landscape mode, guaranteeing 100vw edge-to-edge video and eliminating the half-screen black layout glitch.
+   - In portrait: applies a micro-overscan (`scale(1.02)`) to completely erase 1px–2px black rounding lines at the top and bottom of the player.
+6. **Standalone Offline Release Build:** Pre-compiled Hermes Ahead-of-Time (AOT) bytecode embedded directly in the APK, eliminating any Metro bundler dependency on launch.
 
 ---
 
-## 2. Technology Stack — What We Used & Why
+## 2. Technology Stack & Decision Rationale
 
-| Component | Technology | Rationale & Alternatives Considered |
+| Component | Choice | Why This Was Chosen |
 | :--- | :--- | :--- |
-| **Framework** | **Expo SDK 57 / React Native 0.86** | Provides high-performance Continuous Native Generation (CNG), cross-platform mobile rendering, and access to modern native hardware APIs (Haptics, Status Bar, Safe Area) without Xcode/Android Studio manual configuration overhead. |
-| **Language** | **TypeScript 5.x / 6.x (Strict)** | Guarantees type safety across extension manifests, setting schemas, bridge events, and neumorphic style contracts. |
-| **Browser Engine** | **`react-native-webview` (v13.x)** | Chosen over custom Chromium/Gecko forks (~150MB overhead) and native video players (cipher breakage). WebViews receive native platform hardware acceleration (`androidLayerType="hardware"`), full HTML5 video support, and two-way script injection capabilities. |
-| **Design Language** | **Neumorphism (Soft UI)** | Chosen over standard Material or Flat design to provide an elevated, modern tactile experience suited for audio/video media controls. |
-| **Storage Engine** | **`@react-native-async-storage`** | Lightweight, key-value asynchronous storage for saving extension manifests, user configurations, theme preferences, and ad-blocking statistics. |
-| **Haptics** | **`expo-haptics`** | Provides tactile feedback on button presses, search actions, and switch toggles, enhancing the neumorphic physical feel. |
+| **Framework** | **Expo SDK 57 / React Native 0.86** | Cross-platform native mobile performance with Continuous Native Generation (CNG), modern status bar, safe area context, and haptics. |
+| **Language** | **TypeScript 5.x / 6.x (Strict)** | Strict end-to-end typing across manifests, bridge messages, and UI tokens. |
+| **Browser Runtime** | **`react-native-webview` (v13.x)** | Native hardware video acceleration, HTML5 media support, and deep two-way JS/CSS injection. Configured with hardware layer acceleration and opaque background to prevent Android surface composition glitches. |
+| **Video Zoom System** | **Multi-Touch Capture Pinch Engine** | Non-passive touch interceptors measuring touch distance (`Math.hypot(dx, dy)`) with memory-state scale tracking and native GPU `object-fit: cover` scaling. |
+| **Design System** | **Neumorphism (Soft UI)** | Custom optical dual-shadow system giving elevated tactile surfaces, concave tracks, and spring animations tailored for media playback. |
+| **Storage Engine** | **`@react-native-async-storage`** | Lightweight persistence for extension manifests, configurations, theme preferences, and ad-blocking statistics. |
+| **Haptics** | **`expo-haptics`** | Haptic ticks on toggle, press, and slider adjustments to reinforce the physical neumorphic feel. |
 
 ---
 
 ## 3. High-Level System Architecture
 
+```mermaid
+flowchart TD
+    subgraph Native ["React Native App Layer"]
+        DIM["useWindowDimensions (Orientation Detection)"]
+        BD["BottomDock (Back, Forward, Home, Reload, Settings)"]
+        SM["SettingsModal (Desktop, Zen, Theme, PiP, WebApps, Ext)"]
+        WM["SearchModal (WebApps Hub & Search)"]
+        PP["Floating PiP Miniplayer (Draggable, Video Continuity)"]
+        EC["ExtensionContext & ThemeContext"]
+        EE["ExtensionEngine (Compiler & Matcher)"]
+        AS["AsyncStorage (Persistence)"]
+    end
+
+    subgraph WebSandbox ["WebView Sandbox (Full-Bleed)"]
+        NM["URL Matcher & Normalizer"]
+        DS["Document Start: ytInitialPlayerResponse Sanitizer"]
+        CS["DOM Ready: Cosmetic CSS & 'Open App' Banner Suppressor"]
+        PZ["2-Finger Pinch-to-Zoom Engine (Glitch-Free & Micro-Overscan)"]
+        MO["MutationObserver & Ad Skipper Loop"]
+        SPA["SPA Navigation Handler ('yt-navigate-finish')"]
+    end
+
+    DIM --> BD
+    BD --> SM
+    SM --> WM
+    SM --> PP
+    SM --> EC
+    EC <--> AS
+    EC --> EE
+    EE -- Normalized Injected JS & CSS --> WebSandbox
+    PZ --> WebSandbox
+    WebSandbox -- PostMessage Bridge --> EE
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        React Native Application Layer                   │
-│                                                                        │
-│   ┌───────────────────────┐  ┌─────────────────────────────────────┐  │
-│   │   TopHeader (Nav/Logo)│  │   BottomDock (Home, WebApps, PiP)   │  │
-│   └───────────┬───────────┘  └──────────────────┬──────────────────┘  │
-│               │                                 │                      │
-│   ┌───────────▼─────────────────────────────────▼──────────────────┐  │
-│   │         ExtensionContext & ThemeContext State Manager           │  │
-│   │   • Extension Registry  • Settings  • AdBlock Stats  • Theme    │  │
-│   └───────────┬─────────────────────────────────┬──────────────────┘  │
-│               │                                 │                      │
-│   ┌───────────▼───────────┐         ┌───────────▼──────────────────┐  │
-│   │    ExtensionEngine    │         │  AsyncStorage Persistence    │  │
-│   │  • Script Compiler    │         │  • Enabled extensions        │  │
-│   │  • CSS Builder        │         │  • Custom userscripts        │  │
-│   │  • Bridge Dispatcher  │         │  • Live blocking statistics  │  │
-│   └───────────┬───────────┘         └──────────────────────────────┘  │
-│               │                                                        │
-│               ├─────────────────────────────────┐                      │
-│               │                                 │                      │
-│   ┌───────────▼───────────┐         ┌───────────▼──────────────────┐  │
-│   │    Primary WebView    │         │  Floating PiP Miniplayer     │  │
-│   │ (YouTube / Instagram) │         │   (Uninterrupted Video)      │  │
-│   └───────────────────────┘         └──────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────┘
-```
 
 ---
 
-## 4. Multi-Layer AdBlocker & Black Screen Resolution
+## 4. Authentic 2-Finger Pinch-to-Zoom & Black Bar Elimination
 
-### Root Cause Analysis of the "Black Screen" Stall
-
-Through deep debugging across YouTube's web client and leading adblock mechanisms (`uBlockOrigin/uAssets`, `TheRealJoelmatic/RemoveAdblockThing`, `0x48piraj/fadblock`), the infamous YouTube ad blocker "black screen" was identified as being caused by three fatal flaws:
-
-1. **Monkey-Patching `fetch()` and `XMLHttpRequest` with Compressed Payloads:**
-   * *Problem:* Previous adblock implementations monkey-patched `window.fetch` to intercept `youtubei/v1/player`. When inspecting and reconstructing the response via `new Response(JSON.stringify(data), { headers: response.headers })`, the original `content-encoding: gzip` or `br` header remained in place. The browser's native networking layer attempted decompression on uncompressed text, failing with `net::ERR_CONTENT_DECODING_FAILED`. As a result, the video player never received valid streaming URLs and stalled on a pitch black box.
-   * *Solution:* Leave native `window.fetch` completely untouched. Never manipulate `/youtubei/v1/player` HTTP streams.
-2. **CSS Over-blocking (`.video-ads`, `[id^="ad_"]`, `.ytp-ad-module`):**
-   * *Problem:* `.video-ads` and `.ytp-ad-module` are integral containers inside YouTube's HTML5 video player that house the video element and the skip button overlay. Setting `display: none !important` on them conceals the video frame itself, creating a black hole while the ad audio plays in the background, and hides the skip button so it can never be clicked.
-   * *Solution:* Never apply `display: none` to `.video-ads` or video player modules. Target only out-of-player cosmetic elements (e.g. `ytd-promoted-sparkles-web-renderer`, `ytd-display-ad-renderer`, `#masthead-ad`).
-3. **Buffer Stalls from Artificially Seeking `video.currentTime`:**
-   * *Problem:* Jumping directly to `video.duration - 0.05` causes the HTML5 media player to enter an unbuffered wait state when the trailing chunks are not pre-fetched, locking the player in a spinning loader or black screen.
-   * *Solution:* Implement a **Fast-Forward & Skip Engine** running at 50ms intervals:
-     - Detects ad status via `.ad-showing`, `.ad-interrupting`, `.ytp-ad-badge` (strictly visible), or skip button presence.
-     - Immediately mutes ad audio.
-     - Automatically clicks all skip buttons (`.ytp-ad-skip-button`, `.ytp-ad-skip-button-modern`, etc.) and calls `player.skipAd()`.
-     - Sets `video.playbackRate = 16.0` and invokes `video.play()` so any unskippable bumpers elapse in under 200ms without buffering stalls.
-     - Guardrail: Only skips short bumper ads (`duration < 120s`), ensuring regular video duration is never truncated.
-     - Instantly restores original `playbackRate` (1.0x), volume, and unmuted status as soon as the ad concludes.
+### Key Improvements:
+1. **Memory-Based Gesture Scale Latch:**
+   Instead of attempting to extract scale values from the DOM `style.transform` string via regular expressions on `onTouchEnd` (which previously caused regex mismatch glitches that forced the player back to normal), the active pinch scale is continuously tracked in a primitive float variable (`activePinchScale`).
+2. **Elimination of the Landscape Half-Black Screen Bug:**
+   On YouTube mobile, rotating into landscape causes YouTube scripts to inject inline styles (`style="width: 360px; left: 0px;"`). When zoomed, scaling an undersized element leaves half the screen black. The zoom engine strictly overrides inline positioning:
+   `v.style.setProperty('width', '100%', 'important'); v.style.setProperty('left', '0px', 'important'); v.style.setProperty('top', '0px', 'important');`
+3. **Elimination of Portrait 1px-2px Black Border Lines:**
+   In portrait mode, fractional pixel rounding (`393 * 9 / 16 = 221.0625px`) produces thin 1px black gaps on top and bottom. A 1.5% micro-overscan (`scale(1.015)`) seamlessly eliminates subpixel rounding gaps without perceptible cropping.
+4. **Middle Double-Tap Shortcut:**
+   Center 36% of the screen toggles between "Original" and "Zoomed to fill", preserving the left/right 10-second seek gestures.
+5. **Frosted Pill Toast:**
+   YouTube-style frosted acrylic pill (`#yt-zoom-toast`) with backdrop blur (`blur(12px)`) gives instant visual feedback.
 
 ---
 
-## 5. WebApps & Multi-Origin Browser Hub
+## 5. UI Ergonomics & Navigation Architecture
 
-### The WebApps Switcher (`src/components/SearchModal.tsx`)
-Users can seamlessly switch between YouTube and other modern web applications:
-* **Featured 1-Tap WebApps Grid:**
-  - **Instagram:** `https://www.instagram.com`
-  - **X (Twitter):** `https://x.com`
-  - **Reddit:** `https://www.reddit.com`
-  - **TikTok:** `https://www.tiktok.com`
-  - **Twitch:** `https://m.twitch.tv`
-  - **Google:** `https://www.google.com`
-  - **GitHub:** `https://github.com`
-  - **SoundCloud:** `https://m.soundcloud.com`
-  - **YouTube:** `https://m.youtube.com`
-* **Address Bar & Dual Actions:**
-  - Automatic URL recognition (`instagram.com` -> `https://instagram.com`).
-  - Search queries offer both **"Search Google"** and **"Search YouTube"** shortcuts.
-* **Architecture Fix for Multi-Origin Navigation:**
-  - In `App.tsx`, `activeSourceUri` updates the `<WebView source={{ uri: activeSourceUri }}>` prop on user-driven navigation, allowing the native WebView to switch to third-party domains directly without CSP restrictions.
+- **No Top Header:** TopHeader component deleted. Full vertical height dedicated to web/video content.
+- **Dock Navigation:** Bottom dock houses 5 tactile buttons:
+  1. `Back` — with disabled dimming.
+  2. `Forward` — with disabled dimming.
+  3. `Home` — prominent center return button.
+  4. `Reload` — toggles to `close` during loading.
+  5. `Settings` — opens SettingsModal.
+- **Auto-Hide in Landscape:** Bottom dock automatically hides when rotated horizontally, dedicating 100% of the display to video.
+- **Settings & Tools Modal:**
+  - Desktop Mode toggle
+  - Zen Mode toggle
+  - Dark/Light Theme toggle
+  - PiP Miniplayer trigger
+  - WebApps & Browser Hub (Instagram, X, Twitch, TikTok, Reddit)
+  - Extensions & AdShield Pro Hub
 
 ---
 
-## 6. Picture-in-Picture (PiP) Floating Miniplayer
+## 6. Build & Packaging Architecture
 
-### Architecture (`src/components/PipPlayer.tsx`)
-When a user is watching a YouTube video and wants to browse Instagram, Reddit, or other web content:
-1. **Automatic PiP on WebApp Switch:**
-   - Navigating to an external webapp automatically extracts the active video ID and launches the floating `PipPlayer`.
-2. **Dedicated PiP Dock Button:**
-   - The BottomDock features a dedicated **PiP Toggle (`tv`)** button to immediately float the current video.
-3. **Controls & Gestures:**
-   - **Floating Neumorphic Window:** Positioned above the dock with elevation shadow and rounded corners.
-   - **Expand (`⤢`):** Closes the PiP window and restores the video full-size in the primary WebView.
-   - **Close (`✕`):** Dismisses the miniplayer.
+- **Standalone Release Packaging:** Generated via `./gradlew assembleRelease --no-daemon`.
+- **Hermes AOT Bytecode:** Pre-compiled into `assets/index.android.bundle`.
+- **APK Signature Scheme v2:** Verified and signed for immediate device installation.
+- **Zero Metro Dependency:** Runs completely offline without developer port-forwarding (`adb reverse tcp:8081`).
 
 ---
 
-## 7. Video Playback Continuity & Auto High Quality (Auto HD)
+## 7. Background Audio Playback & Lockscreen Media Controls Architecture
 
-### The "Video Restart on In-Page Modals" Bug Resolved
-* **The Root Cause:**
-  When a user opens YouTube in-page dialogs (e.g., Settings, Quality, Playback Speed, Comments, Share, or Description), YouTube mobile web calls `history.pushState(null, '', '#...')`.
-  `onNavigationStateChange` in `react-native-webview` captured this new URL and passed it to `setCurrentUrl(navState.url)`. Because `<WebView source={{ uri: currentUrl }}>` was bound directly to this state variable, React Native updated the `source` prop, causing Android's `RNCWebViewManager` to call native `view.loadUrl(newUrl)`. This forced a full webpage reload and restarted the video from `0:00`.
-* **The Architecture Fix:**
-  1. `<WebView source={webViewSource}>` now references a memoized object that only changes on deliberate top-level user actions (Home button, WebApps Hub navigation, or Desktop Mode toggle).
-  2. `currentUrl` is updated strictly for UI tracking and is completely decoupled from the WebView's active `source` prop during in-page navigation.
-  3. `injectedStartScript` and `injectedEndScript` are memoized on `[extensions, isDark]` rather than `currentUrl`, eliminating script re-evaluations during in-page navigation.
+1. **Page Visibility Spoofing & Event Swallowing:**
+   - Overrides `document.hidden`, `document.visibilityState`, and WebKit variants to stay permanently `visible`/`false`.
+   - Injects capture-phase immediate event stoppers (`stopImmediatePropagation`) on both `window` and `document` for `visibilitychange`, `webkitvisibilitychange`, and `pagehide`.
+   - Filters `EventTarget.prototype.addEventListener` so pages cannot register visibility-change listeners.
+   - Spoofs `document.hasFocus()` to always return `true`, completely preventing YouTube Mobile web player from pausing when the app is minimized, locked, or backgrounded.
 
-### Always High Quality (Auto HD) Extension (`src/core/extensions/youtubeAutoHD.ts`)
-* Automatically detects the highest available resolution for the current video:
-  - Queries `player.getAvailableQualityLevels()` (e.g. `['hd2160', 'hd1440', 'hd1080', 'hd720', ...]`).
-  - Automatically identifies the maximum resolution and invokes `player.setPlaybackQualityRange(maxLevel, maxLevel)` and `player.setPlaybackQuality(maxLevel)`.
-  - Debounced retry logic runs up to 8 checks on video start/navigation, then enters idle mode to prevent repeated stream rebuffering.
-  - Pre-seeds YouTube's `localStorage` with `{ "data": "highres" }` on document start.
+2. **User Gesture Pause Discrimination & Keepalive Watchdog:**
+   - Tracks intentional user touch/click/remote actions (`window.__lastUserGestureTime`, `window.__userWantsPaused`).
+   - Hooks `HTMLMediaElement.prototype.pause` so automated background pause attempts without recent user interaction are rejected.
+   - Watchdog interval periodically verifies video state and restores playback if backgrounding caused an unauthorized pause.
 
----
+3. **Native MediaSession, AudioFocus & Power Locks:**
+   - **`MediaPlaybackService`:** Android Foreground Service with `foregroundServiceType="mediaPlayback"`.
+   - **AudioFocus Request (`AudioManager`):** Configures `AudioFocusRequest` with `USAGE_MEDIA`, `CONTENT_TYPE_MUSIC`, and `AUDIOFOCUS_GAIN` on Android 8.0+ and legacy audio focus listeners to prevent the system audio manager from muting background audio.
+   - **Dual WakeLock & WifiLock:** Acquires `PARTIAL_WAKE_LOCK` and `WIFI_MODE_FULL_HIGH_PERF` to maintain CPU execution and network streaming pipelines while the screen is off.
+   - **Notification & Lockscreen UI:** Native `androidx.media.app.NotificationCompat.MediaStyle` linked to `MediaSessionCompat`.
+   - **Interactive Controls:**
+     - **Rewind (-10s)**: Jumps back 10 seconds.
+     - **Play / Pause**: Instant toggle with immediate local UI feedback and remote command dispatch.
+     - **Fast Forward (+10s)**: Jumps ahead 10 seconds.
+     - **Next Video**: Triggers YouTube's next track action.
+     - **Progress / Scrubber**: Android 13+ lockscreen media player automatically binds scrubber to position and duration.
+   - **Artwork Extraction:** Dynamically extracts video thumbnails and displays high-res artwork in the notification shade and lockscreen widget.
+   - **Hardware & Bluetooth Integration:** Native `MediaSessionCompat` automatically receives Bluetooth headphone and smartwatch commands (play, pause, skip).
 
-## 8. UI/UX & Neumorphic Architecture
 
-### Stable View Hierarchy & Gesture Responsiveness
-In previous implementations, `NeumorphicBox` toggled between a dual-view hierarchy when `elevated` and a single-view hierarchy when `pressed`. When a user touched a `NeumorphicButton`, React Native's gesture responder tree changed dynamically mid-touch, causing the `Pressable` to cancel the active gesture and silently drop `onPress`.
-
-**The Solution:**
-1. `NeumorphicBox` maintains a strictly identical 2-View hierarchy (`lightShadowWrapper` -> `container`) across both `elevated` and `pressed` states.
-2. `StyleSheet.flatten` extracts outer layout properties (`margin`, `flex`, `width`, `height`, `zIndex`) for the outer shadow wrapper, while inner surface properties (`padding`, `alignItems`, `justifyContent`, `backgroundColor`, `borderRadius`, `borderWidth`) are assigned to the inner container.
-3. If fixed dimensions (`width: 38, height: 38` or `46x46`) or `flex: 1` are passed, the inner container automatically expands to 100% with centered alignment, eliminating off-center clipping and misalignments.
-4. Generous `hitSlop` (`top: 8, bottom: 8, left: 8, right: 8`) guarantees immediate responsiveness on mobile touch screens.
-
-### Streamlined Navigation Layout
-* **Top Header (`src/components/TopHeader.tsx`):**
-  - Left: Back (`<`), Forward (`>`), and Reload (`↻`).
-  - Center: `YT_wr` brand logo (tap to navigate Home).
-  - Right: Live AdShield Protection counter, Zen Focus toggle (`leaf`), and Dark/Light theme toggle.
-* **Bottom Dock (`src/components/BottomDock.tsx`):**
-  - High-depth floating pill housing 5 evenly-spaced 46x46 circular tactile buttons:
-    1. **Home:** Instant return to YouTube home feed.
-    2. **WebApps Hub (`globe`):** Opens WebApps & Browser Switcher (Instagram, Reddit, X, TikTok, etc.).
-    3. **PiP Miniplayer (`tv`):** Toggles floating Picture-in-Picture window.
-    4. **Desktop / Mobile (`desktop`):** Switches User-Agent between desktop and mobile formats.
-    5. **Extensions Hub (`extension-puzzle`):** Displays active badge count; opens extensions manager and custom script builder.
-
----
-
-## 9. Dark Mode Synchronization Architecture
-
-YouTube Web does not automatically respond to React Native app theme switches without direct integration. The application implements a multi-tier theme synchronizer:
-
-1. **Root Attribute Injection (`document_start` & `document_end`):**
-   * Forces `dark="true"` on `<html>` and `<body>`, which YouTube's Polymer/Web components rely on to activate dark design tokens (`--yt-spec-base-background`, `--yt-spec-text-primary`).
-   * Explicitly sets `document.documentElement.style.colorScheme = 'dark'`.
-2. **Cookie State Persistence:**
-   * Sets `document.cookie = "PREF=f6=400; domain=.youtube.com; path=/; max-age=31536000"` so YouTube's server-rendered HTML responds with dark theme tokens immediately upon navigation.
-3. **MutationObserver Guardian:**
-   * YouTube's client-side SPA scripts periodically reset attributes on `<html>`. A lightweight `MutationObserver` on `document.documentElement` monitors the `dark` attribute and immediately re-applies it if YouTube attempts to remove it.
-4. **Instant Dynamic Theme Toggle (`ExtensionEngine.getThemeToggleScript`):**
-   * When the user taps the theme button in `TopHeader`, React Native executes an in-page script that toggles `dark` attributes, swaps `__rn_theme_style__` CSS variables, and fires a `yt-navigate-finish` event.
-
----
-
-## 10. How to Add New Extensions in the Future
-
-### Method A: Adding Built-in Extensions (In Code)
-
-1. **Create the extension file** in `src/core/extensions/`:
-   ```typescript
-   // src/core/extensions/youtubeMyFeature.ts
-   import { ExtensionManifest } from '../../types/extension';
-
-   export const youtubeMyFeature: ExtensionManifest = {
-     id: 'youtube-my-feature',
-     name: 'My New Feature',
-     description: 'Does something useful on YouTube',
-     version: '1.0.0',
-     author: 'Your Name',
-     icon: 'sparkles',
-     category: 'enhancement',
-     enabled: true,
-     urlMatches: ['*://*.youtube.com/*'],
-     runAt: 'document_end',
-     injectedCSS: (settings) => `/* Custom CSS */`,
-     injectedJSEnd: (settings) => `
-       (function() {
-         console.log('Feature active!');
-       })();
-     `,
-   };
-   ```
-
-2. **Register the extension** in `src/core/extensions/defaultExtensions.ts`:
-   ```typescript
-   import { youtubeMyFeature } from './youtubeMyFeature';
-
-   export const DEFAULT_EXTENSIONS: ExtensionManifest[] = [
-     youtubeAdBlocker,
-     youtubeAutoHD,
-     youtubeDistractionFree,
-     youtubeSponsorBlock,
-     youtubeMyFeature, // <-- Add here
-   ];
-   ```
-
-3. **Verify with commands**:
-   ```bash
-   npx tsc --noEmit
-   npx expo lint
-   ```
-
----
-
-### Method B: Adding Custom Extensions (In App at Runtime)
-
-1. Open the app and tap the **Extensions (`🧩`)** button in the bottom dock.
-2. Tap **`+ Add Custom`**.
-3. Fill in:
-   - **Name:** e.g. "Auto High Quality"
-   - **URL Match Pattern:** `*://*.youtube.com/*`
-   - **Custom CSS:** (Optional CSS overrides)
-   - **Custom JavaScript:** Code to execute in the web context with access to `window.__RN_EXTENSION_BRIDGE__`.
-4. Tap **Save & Install**. The script is immediately compiled, persisted to `AsyncStorage`, and executed on matching pages.
-
----
-
-## 11. Quality Verification Checklist
-
-Before releasing updates or adding new dependencies, run:
-```bash
-npx expo lint        # 0 errors, 0 warnings
-npx tsc --noEmit     # TypeScript typecheck
-npx expo-doctor      # 21/21 checks passed
-```

@@ -1,4 +1,5 @@
 import { ExtensionManifest, BridgeMessage } from '../types/extension';
+import { getBackgroundPlayScript, getMediaObserverScript } from '../utils/mediaSessionScript';
 
 export class ExtensionEngine {
   /**
@@ -7,10 +8,28 @@ export class ExtensionEngine {
   public static matchesUrl(pattern: string, url: string): boolean {
     if (!pattern || pattern === '*' || pattern === '<all_urls>') return true;
     try {
+      let normalizedUrl = url;
+      try {
+        normalizedUrl = new URL(url).href;
+      } catch {}
+
       const escapeRegex = (str: string) => str.replace(/([.+?^=!:${}()|\[\]\/\\])/g, '\\$1');
       const regexStr = '^' + pattern.split('*').map(escapeRegex).join('.*') + '$';
       const regex = new RegExp(regexStr);
-      return regex.test(url);
+      if (regex.test(normalizedUrl) || regex.test(url)) return true;
+
+      // Handle patterns ending with /* against origins without trailing slash (e.g. *://m.youtube.com/* vs https://m.youtube.com)
+      if (pattern.endsWith('/*')) {
+        const originPattern = pattern.slice(0, -2);
+        const originRegex = new RegExp('^' + originPattern.split('*').map(escapeRegex).join('.*') + '$');
+        const cleanUrl = url.replace(/\/$/, '');
+        const cleanNorm = normalizedUrl.replace(/\/$/, '');
+        if (originRegex.test(cleanUrl) || originRegex.test(cleanNorm)) {
+          return true;
+        }
+      }
+
+      return false;
     } catch {
       return true;
     }
@@ -131,6 +150,10 @@ export class ExtensionEngine {
           script += `\n/* Extension Start: ${ext.name} (${ext.id}) */\ntry { ${code} } catch(e) { console.error('[Ext Error: ${ext.id}]', e); }\n`;
         }
       }
+    }
+
+    if (currentUrl.includes('youtube.com') || this.matchesUrl('*://*.youtube.com/*', currentUrl)) {
+      script += `\n/* Background Playback & MediaSession Setup */\n${getBackgroundPlayScript()}\n`;
     }
 
     return script;
@@ -257,6 +280,9 @@ export class ExtensionEngine {
 
         // Execute JS End scripts
         ${jsEndPayload}
+
+        // Media Playback Observer
+        ${currentUrl.includes('youtube.com') || this.matchesUrl('*://*.youtube.com/*', currentUrl) ? getMediaObserverScript() : ''}
       })();
       true;
     `;

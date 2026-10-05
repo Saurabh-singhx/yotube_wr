@@ -2,102 +2,133 @@ import React from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
-import { useExtensions } from '../context/ExtensionContext';
 import { NeumorphicBox } from './neumorphic/NeumorphicBox';
 import { NeumorphicButton } from './neumorphic/NeumorphicButton';
+import { triggerHaptic } from '../utils/haptics';
 
 interface BottomDockProps {
-  isDesktopMode: boolean;
-  isPipActive?: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  isLoading: boolean;
+  onGoBack: () => void;
+  onGoForward: () => void;
+  onReload: () => void;
   onGoHome: () => void;
-  onOpenSearch: () => void;
-  onTogglePip?: () => void;
-  onOpenExtensions: () => void;
-  onToggleDesktopMode: () => void;
+  onOpenSettings: () => void;
 }
 
 export const BottomDock: React.FC<BottomDockProps> = ({
-  isDesktopMode,
-  isPipActive = false,
+  canGoBack,
+  canGoForward,
+  isLoading,
+  onGoBack,
+  onGoForward,
+  onReload,
   onGoHome,
-  onOpenSearch,
-  onTogglePip,
-  onOpenExtensions,
-  onToggleDesktopMode,
+  onOpenSettings,
 }) => {
   const { palette } = useTheme();
-  const { extensions } = useExtensions();
-
-  const activeExtensionsCount = extensions.filter((e) => e.enabled).length;
 
   return (
     <View style={styles.outerContainer} pointerEvents="box-none">
       <NeumorphicBox
         depth="high"
         borderRadius={32}
-        style={styles.dockBox}
+        style={[styles.dockBox, { backgroundColor: palette.surface }]}
       >
         <View style={styles.dockRow}>
-          {/* 1. Home Feed */}
+          {/* 1. Back Button */}
           <NeumorphicButton
-            onPress={onGoHome}
-            size="sm"
-            style={styles.dockItem}
-            borderRadius={23}
-            icon={<Ionicons name="home" size={20} color={palette.textPrimary} />}
-          />
-
-          {/* 2. WebApps & Search Hub */}
-          <NeumorphicButton
-            onPress={onOpenSearch}
-            size="sm"
-            style={styles.dockItem}
-            borderRadius={23}
-            icon={<Ionicons name="globe" size={20} color={palette.accent} />}
-          />
-
-          {/* 3. Picture-in-Picture (PiP) Mode */}
-          {onTogglePip && (
-            <NeumorphicButton
-              onPress={onTogglePip}
-              size="sm"
-              style={styles.dockItem}
-              borderRadius={23}
-              isActive={isPipActive}
-              icon={
-                <Ionicons
-                  name="tv"
-                  size={19}
-                  color={isPipActive ? palette.primary : palette.textPrimary}
-                />
+            onPress={() => {
+              if (canGoBack) {
+                triggerHaptic();
+                onGoBack();
               }
-            />
-          )}
-
-          {/* 4. Desktop / Mobile Toggle */}
-          <NeumorphicButton
-            onPress={onToggleDesktopMode}
+            }}
             size="sm"
-            style={styles.dockItem}
+            style={[styles.dockItem, !canGoBack && styles.disabledItem]}
             borderRadius={23}
-            isActive={isDesktopMode}
             icon={
               <Ionicons
-                name={isDesktopMode ? 'desktop' : 'phone-portrait-outline'}
-                size={19}
-                color={isDesktopMode ? palette.accent : palette.textPrimary}
+                name="chevron-back"
+                size={22}
+                color={canGoBack ? palette.textPrimary : palette.textMuted}
               />
             }
           />
 
-          {/* 5. Extension Hub */}
+          {/* 2. Forward Button */}
           <NeumorphicButton
-            onPress={onOpenExtensions}
+            onPress={() => {
+              if (canGoForward) {
+                triggerHaptic();
+                onGoForward();
+              }
+            }}
+            size="sm"
+            style={[styles.dockItem, !canGoForward && styles.disabledItem]}
+            borderRadius={23}
+            icon={
+              <Ionicons
+                name="chevron-forward"
+                size={22}
+                color={canGoForward ? palette.textPrimary : palette.textMuted}
+              />
+            }
+          />
+
+          {/* 3. Center Home Feed Button */}
+          <NeumorphicButton
+            onPress={() => {
+              triggerHaptic();
+              onGoHome();
+            }}
+            size="md"
+            style={styles.homeItem}
+            borderRadius={26}
+            icon={
+              <Ionicons
+                name="home"
+                size={22}
+                color={palette.primary}
+              />
+            }
+          />
+
+          {/* 4. Reload / Refresh Button */}
+          <NeumorphicButton
+            onPress={() => {
+              triggerHaptic();
+              onReload();
+            }}
             size="sm"
             style={styles.dockItem}
             borderRadius={23}
-            icon={<Ionicons name="extension-puzzle" size={20} color={palette.textPrimary} />}
-            badge={activeExtensionsCount}
+            icon={
+              <Ionicons
+                name="reload"
+                size={20}
+                color={palette.textPrimary}
+              />
+            }
+          />
+
+          {/* 5. Settings Button (replaces other webapp selector button) */}
+          <NeumorphicButton
+            onPress={() => {
+              triggerHaptic();
+              onOpenSettings();
+            }}
+            size="sm"
+            style={styles.dockItem}
+            borderRadius={23}
+            icon={
+              <Ionicons
+                name="settings-outline"
+                size={21}
+                color={palette.textPrimary}
+              />
+            }
           />
         </View>
       </NeumorphicBox>
@@ -109,29 +140,35 @@ const styles = StyleSheet.create({
   outerContainer: {
     position: 'absolute',
     bottom: Platform.OS === 'ios' ? 24 : 16,
-    left: 20,
-    right: 20,
+    left: 0,
+    right: 0,
     alignItems: 'center',
-    justifyContent: 'center',
+    zIndex: 100,
   },
   dockBox: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 32,
+    minWidth: 310,
     maxWidth: 360,
-    width: '100%',
   },
   dockRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    width: '100%',
+    gap: 8,
   },
   dockItem: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  homeItem: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  disabledItem: {
+    opacity: 0.38,
   },
 });

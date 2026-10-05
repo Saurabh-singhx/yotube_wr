@@ -9,7 +9,7 @@ export const youtubeSponsorBlock: ExtensionManifest = {
   icon: 'flash',
   category: 'enhancement',
   enabled: true,
-  urlMatches: ['*://*.youtube.com/*', '*://m.youtube.com/*'],
+  urlMatches: ['*://*.youtube.com/*', '*://m.youtube.com/*', '*://*.youtube.com*'],
   runAt: 'document_end',
   settings: [
     {
