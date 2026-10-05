@@ -331,8 +331,12 @@ export const youtubeAdBlocker: ExtensionManifest = {
                 if (video.paused && !video.ended) {
                   try { video.play().catch(function(){}); } catch(e) {}
                 }
-                if (player && typeof player.playVideo === 'function') {
-                  try { player.playVideo(); } catch(e) {}
+                if (player) {
+                  try {
+                    if (typeof player.unMute === 'function') player.unMute();
+                    if (typeof player.setVolume === 'function') player.setVolume(Math.round((savedVolume || 1) * 100));
+                    if (typeof player.playVideo === 'function') player.playVideo();
+                  } catch(e) {}
                 }
 
                 // Automatic MediaCodec hardware decoder flush & unfreeze kick:

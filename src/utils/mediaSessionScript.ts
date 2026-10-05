@@ -39,9 +39,13 @@ export function getBackgroundPlayScript(): string {
           Object.defineProperty(Document.prototype, 'onvisibilitychange', nullProp);
           Object.defineProperty(window, 'onpagehide', nullProp);
           Object.defineProperty(Window.prototype, 'onpagehide', nullProp);
+          Object.defineProperty(window, 'onblur', nullProp);
+          Object.defineProperty(Window.prototype, 'onblur', nullProp);
+          Object.defineProperty(document, 'onblur', nullProp);
+          Object.defineProperty(Document.prototype, 'onblur', nullProp);
         } catch(e) {}
 
-        // 3. Capture-phase immediate propagation stopper for visibility and blur events
+        // 3. Capture-phase immediate propagation stopper for visibility, blur, focusout, and pagehide events
         var swallowEvent = function(e) {
           if (e) {
             try { e.stopImmediatePropagation(); } catch(_) {}
@@ -52,15 +56,25 @@ export function getBackgroundPlayScript(): string {
           window.addEventListener('visibilitychange', swallowEvent, true);
           window.addEventListener('webkitvisibilitychange', swallowEvent, true);
           window.addEventListener('pagehide', swallowEvent, true);
+          window.addEventListener('blur', swallowEvent, true);
+          window.addEventListener('focusout', swallowEvent, true);
           document.addEventListener('visibilitychange', swallowEvent, true);
           document.addEventListener('webkitvisibilitychange', swallowEvent, true);
+          document.addEventListener('blur', swallowEvent, true);
+          document.addEventListener('focusout', swallowEvent, true);
         } catch(e) {}
 
-        // 4. Drop visibilitychange, webkitvisibilitychange & pagehide listeners at the EventTarget level
+        // 4. Drop visibilitychange, webkitvisibilitychange, pagehide & blur listeners at the EventTarget level
         try {
           var origEventTargetAddEventListener = EventTarget.prototype.addEventListener;
           EventTarget.prototype.addEventListener = function(type, listener, options) {
-            if (type === 'visibilitychange' || type === 'webkitvisibilitychange' || type === 'pagehide') {
+            if (
+              type === 'visibilitychange' ||
+              type === 'webkitvisibilitychange' ||
+              type === 'pagehide' ||
+              type === 'blur' ||
+              type === 'focusout'
+            ) {
               return;
             }
             return origEventTargetAddEventListener.call(this, type, listener, options);
@@ -110,9 +124,10 @@ export function getBackgroundPlayScript(): string {
             var now = Date.now();
             var isRecentGesture = (now - (window.__lastUserGestureTime || 0)) < 1200;
 
-            // In background, suppress automated pauses triggered by visibilitychange/pagehide
-            var isHidden = document.hidden === true || document.webkitHidden === true;
-            if (isHidden && !isRecentGesture && !window.__userWantsPaused) {
+            // If the user has not recently touched the screen and did not send a remote pause command,
+            // this is an automated pause triggered by backgrounding / blur / visibility loss.
+            // Suppress it completely so background playback continues uninterrupted!
+            if (!isRecentGesture && !window.__userWantsPaused) {
               return;
             }
 
@@ -289,21 +304,59 @@ export function getMediaObserverScript(): string {
         window.__RN_EXTENSION_BRIDGE__.send('media-session', 'MEDIA_STATE_UPDATE', meta);
       }
 
+      function unmuteAudio(video) {
+        if (!video) return;
+        try {
+          var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+          var isAd = false;
+          if (player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'))) {
+            isAd = true;
+          }
+          if (document.querySelector('.video-ads.ytp-ad-module .ytp-ad-player-overlay, .ytp-ad-skip-button, .ytp-ad-skip-button-modern')) {
+            isAd = true;
+          }
+          if (isAd) return;
+
+          if (video.muted) {
+            video.muted = false;
+          }
+          if (typeof video.volume === 'number' && video.volume < 1) {
+            video.volume = 1.0;
+          }
+          if (player) {
+            if (typeof player.isMuted === 'function' && player.isMuted()) {
+              if (typeof player.unMute === 'function') player.unMute();
+            }
+            if (typeof player.getVolume === 'function' && player.getVolume() < 100) {
+              if (typeof player.setVolume === 'function') player.setVolume(100);
+            }
+          }
+          var unmuteBtn = document.querySelector(
+            '.ytp-unmute, .ytp-unmute-inner, button[aria-label*="unmute" i], .volume-icon-muted, ytm-unmute-button'
+          );
+          if (unmuteBtn) {
+            try { unmuteBtn.click(); } catch(e) {}
+          }
+        } catch(e) {}
+      }
+
       function attachToVideo(video) {
         if (!video || video.__ytwrAttached) return;
         video.__ytwrAttached = true;
 
-        var events = ['play', 'pause', 'ended', 'timeupdate', 'loadedmetadata', 'ratechange'];
+        var events = ['play', 'playing', 'pause', 'ended', 'timeupdate', 'loadedmetadata', 'ratechange'];
         events.forEach(function(ev) {
           video.addEventListener(ev, function() {
-            if (ev === 'play' || (ev === 'timeupdate' && !video.paused)) {
+            if (ev === 'play' || ev === 'playing' || (ev === 'timeupdate' && !video.paused)) {
               window.__userWantsPaused = false;
+              unmuteAudio(video);
             }
             reportMediaState(video, ev !== 'timeupdate');
           });
         });
 
         if (!video.paused) {
+          unmuteAudio(video);
           reportMediaState(video, true);
         }
       }
@@ -314,7 +367,9 @@ export function getMediaObserverScript(): string {
       // Mutation observer for dynamic video element changes
       try {
         var observer = new MutationObserver(function() {
-          document.querySelectorAll('video').forEach(attachToVideo);
+          document.querySelectorAll('video').forEach(function(v) {
+            attachToVideo(v);
+          });
         });
         observer.observe(document.body || document.documentElement, {
           childList: true,
@@ -324,10 +379,12 @@ export function getMediaObserverScript(): string {
 
       // YouTube SPA navigation listener
       window.addEventListener('yt-navigate-finish', function() {
+        window.__userWantsPaused = false;
         setTimeout(function() {
           var v = document.querySelector('video');
           if (v) {
             attachToVideo(v);
+            unmuteAudio(v);
             reportMediaState(v, true);
           }
         }, 600);
@@ -340,10 +397,11 @@ export function getMediaObserverScript(): string {
         for (var i = 0; i < videos.length; i++) {
           var v = videos[i];
           if (v.paused && !v.ended && v.readyState >= 2 && !window.__userWantsPaused) {
+            unmuteAudio(v);
             v.play().catch(function() {});
           }
         }
-      }, 500);
+      }, 1000);
     })();
   `;
 }
@@ -359,6 +417,15 @@ export function getRemoteControlScript(action: string, position?: number): strin
         switch ('${action}') {
           case 'PLAY':
             window.__userWantsPaused = false;
+            if (video) {
+              try {
+                if (video.muted) video.muted = false;
+                if (typeof video.volume === 'number' && video.volume < 1) video.volume = 1.0;
+                var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+                if (p && typeof p.unMute === 'function') p.unMute();
+                if (p && typeof p.setVolume === 'function') p.setVolume(100);
+              } catch(e) {}
+            }
             if (typeof actions['play'] === 'function') {
               try { actions['play'](); } catch(e) {}
             } else if (video) {
