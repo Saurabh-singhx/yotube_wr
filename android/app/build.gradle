@@ -181,3 +181,14 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+// Workaround for React Native New Architecture CMake clean issue where ninja
+// attempts to re-evaluate missing codegen folders during clean
+tasks.matching { it.name.startsWith("externalNativeBuildClean") }.configureEach {
+    enabled = false
+}
+tasks.named("clean").configure {
+    doFirst {
+        delete file(".cxx")
+    }
+}
