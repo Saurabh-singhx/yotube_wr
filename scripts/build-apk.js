@@ -15,6 +15,16 @@ const ANDROID_DIR = path.join(ROOT_DIR, 'android');
 const APK_SRC = path.join(ANDROID_DIR, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk');
 const GENERATED_DIR = path.join(ROOT_DIR, 'generated_apk');
 
+const { bumpVersion } = require('./bump-version');
+
+// Optional auto-bump flag: e.g. node scripts/build-apk.js --bump (or --bump=patch, --bump=build)
+const bumpArg = process.argv.find((a) => a.startsWith('--bump'));
+if (bumpArg) {
+  const bumpMode = bumpArg.includes('=') ? bumpArg.split('=')[1] : 'build';
+  console.log(`Auto-bumping version (${bumpMode}) before build...`);
+  bumpVersion(bumpMode);
+}
+
 // Read current version
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8'));
 const version = pkg.version || '1.0.0';
@@ -43,12 +53,15 @@ try {
 
   // Target outputs
   const versionedApkName = `YouTube_wr-v${version}.apk`;
+  const buildTaggedApkName = `YouTube_wr-v${version}-b${build}.apk`;
   const versionedApkPath = path.join(GENERATED_DIR, versionedApkName);
+  const buildTaggedApkPath = path.join(GENERATED_DIR, buildTaggedApkName);
   const stableApkPath = path.join(GENERATED_DIR, 'YouTube_wr.apk');
   const releaseApkPath = path.join(GENERATED_DIR, 'app-release.apk');
 
   // Copy outputs
   fs.copyFileSync(APK_SRC, versionedApkPath);
+  fs.copyFileSync(APK_SRC, buildTaggedApkPath);
   fs.copyFileSync(APK_SRC, stableApkPath);
   fs.copyFileSync(APK_SRC, releaseApkPath);
 

@@ -39,3 +39,22 @@ Docs: https://docs.expo.dev/eas/index.md
 - If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
 - Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
 - Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+
+## Mandatory Versioning on Every Change & Build (STRICT RULE)
+
+On **every upcoming code change, bug fix, feature, refactor, or build** (even if it does NOT get pushed as a formal GitHub release):
+1. **Always increment the version / build number**:
+   - For changes and bug fixes: run `node scripts/bump-version.js patch` (e.g. `1.1.0` -> `1.1.1`, build incremented).
+   - For new features: run `node scripts/bump-version.js minor`.
+   - For internal builds / rebuilds: run `node scripts/bump-version.js build` (increments `versionCode` & `APP_BUILD`).
+2. **Synchronize all 5 version sources atomically**:
+   - `package.json` (`version`)
+   - `package-lock.json` (`version` and root package)
+   - `app.json` (`expo.version`, `expo.android.versionCode`)
+   - `android/app/build.gradle` (`versionName`, `versionCode`)
+   - `src/constants/version.ts` (`APP_VERSION`, `APP_BUILD`)
+3. **No untracked builds**:
+   - Never build an APK or conclude a task with stale or unchanged version numbers.
+   - Every build MUST have a unique, incremented `versionCode` so Android package manager never collides with previous installations.
+4. **Pre-Completion Checks**:
+   - Run `npx expo lint`, `npx tsc --noEmit`, and `npm test` before concluding any task.
