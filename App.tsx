@@ -112,6 +112,11 @@ function MainApp() {
     const sub = eventEmitter.addListener(
       'MediaSessionAction',
       (event: { action: string; position?: number }) => {
+        if (event.action === 'PAUSE' || event.action === 'STOP') {
+          setIsVideoPlaying(false);
+        } else if (event.action === 'PLAY') {
+          setIsVideoPlaying(true);
+        }
         if (webViewRef.current) {
           const script = getRemoteControlScript(event.action, event.position);
           webViewRef.current.injectJavaScript(script);
@@ -135,6 +140,9 @@ function MainApp() {
         webViewRef.current.injectJavaScript(`
           (function() {
             window.__isAppInBackground = ${isBackground};
+            if (!${isBackground}) {
+              window.__lastUserGestureTime = Date.now();
+            }
           })();
           true;
         `);

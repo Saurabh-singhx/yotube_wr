@@ -159,25 +159,25 @@ export function getBackgroundPlayScript(): string {
               return origMediaPause.apply(this, arguments);
             }
 
-            // If the app is in the background (minimized, screen locked, app switched),
-            // NEVER allow automated background pauses from YouTube, blur, visibility loss, or Chromium!
-            // This completely prevents background playback from pausing on app minimize or looping.
+            // If user explicitly requested pause (via notification, lockscreen, or tap), ALWAYS allow pause!
+            if (window.__userWantsPaused || window.__isRemotePauseCommand) {
+              window.__userWantsPaused = true;
+              window.__isRemotePauseCommand = false;
+              return origMediaPause.apply(this, arguments);
+            }
+
+            // If the app is in the background and the user did NOT request pause,
+            // this is an automated background pause from YouTube/Chromium. Suppress it!
             if (window.__isAppInBackground === true) {
               return;
             }
 
             var now = Date.now();
-            var isPlayerInteraction = (now - (window.__lastPlayerInteractionTime || 0)) < 1500;
-            var isRecentGesture = (now - (window.__lastUserGestureTime || 0)) < 1200;
-
-            // If the user already flagged they wanted playback paused in the foreground, allow it:
-            if (window.__userWantsPaused) {
-              return origMediaPause.apply(this, arguments);
-            }
+            var isPlayerInteraction = (now - (window.__lastPlayerInteractionTime || 0)) < 1800;
+            var isRecentGesture = (now - (window.__lastUserGestureTime || 0)) < 1500;
 
             // In foreground, if neither direct player interaction nor gesture occurred,
-            // this is an automated pause triggered by background blur or visibility change.
-            // Suppress it!
+            // this is an automated pause triggered by background blur or visibility change. Suppress it!
             if (!isPlayerInteraction && !isRecentGesture) {
               return;
             }
@@ -464,81 +464,133 @@ export function getRemoteControlScript(action: string, position?: number): strin
   return `
     (function() {
       try {
-        var video = document.querySelector('video');
+        var video = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream') || document.querySelector('video');
+        var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
         var actions = window.__ytwrMediaActions || {};
 
         switch ('${action}') {
           case 'PLAY':
             window.__userWantsPaused = false;
             window.__isRemotePlayCommand = true;
-            if (video) {
+            if (player) {
               try {
-                if (video.muted) video.muted = false;
-                if (typeof video.volume === 'number' && video.volume === 0) video.volume = 1.0;
-                var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-                if (p && typeof p.isMuted === 'function' && p.isMuted()) p.unMute();
-                if (p && typeof p.getVolume === 'function' && p.getVolume() === 0) p.setVolume(100);
+                if (typeof player.unMute === 'function' && typeof player.isMuted === 'function' && player.isMuted()) player.unMute();
+                if (typeof player.setVolume === 'function' && typeof player.getVolume === 'function' && player.getVolume() === 0) player.setVolume(100);
+                if (typeof player.playVideo === 'function') player.playVideo();
               } catch(e) {}
             }
             if (typeof actions['play'] === 'function') {
               try { actions['play'](); } catch(e) {}
-            } else if (video) {
-              video.play().catch(function(){});
+            }
+            if (video) {
+              try {
+                if (video.muted) video.muted = false;
+                if (typeof video.volume === 'number' && video.volume === 0) video.volume = 1.0;
+                video.play().catch(function(){});
+              } catch(e) {}
             }
             break;
+
           case 'PAUSE':
             window.__userWantsPaused = true;
             window.__isRemotePauseCommand = true;
+            if (player && typeof player.pauseVideo === 'function') {
+              try { player.pauseVideo(); } catch(e) {}
+            }
             if (typeof actions['pause'] === 'function') {
               try { actions['pause'](); } catch(e) {}
-            } else if (video) {
-              video.pause();
+            }
+            if (video) {
+              try { video.pause(); } catch(e) {}
             }
             break;
+
           case 'FAST_FORWARD':
+            var curF = video && typeof video.currentTime === 'number' ? video.currentTime : 0;
+            var durF = video && typeof video.duration === 'number' && isFinite(video.duration) ? video.duration : Infinity;
+            var newTimeF = Math.min(durF, curF + 10);
+            if (player && typeof player.seekTo === 'function') {
+              try { player.seekTo(newTimeF, true); } catch(e) {}
+            }
+            if (video) {
+              try { video.currentTime = newTimeF; } catch(e) {}
+            }
             if (typeof actions['seekforward'] === 'function') {
               try { actions['seekforward']({ seekOffset: 10 }); } catch(e) {}
-            } else if (video) {
-              video.currentTime = Math.min(video.duration || 0, (video.currentTime || 0) + 10);
             }
             break;
+
           case 'REWIND':
+            var curR = video && typeof video.currentTime === 'number' ? video.currentTime : 0;
+            var newTimeR = Math.max(0, curR - 10);
+            if (player && typeof player.seekTo === 'function') {
+              try { player.seekTo(newTimeR, true); } catch(e) {}
+            }
+            if (video) {
+              try { video.currentTime = newTimeR; } catch(e) {}
+            }
             if (typeof actions['seekbackward'] === 'function') {
               try { actions['seekbackward']({ seekOffset: 10 }); } catch(e) {}
-            } else if (video) {
-              video.currentTime = Math.max(0, (video.currentTime || 0) - 10);
             }
             break;
+
           case 'SEEK_TO':
+            if (player && typeof player.seekTo === 'function') {
+              try { player.seekTo(${safePosition}, true); } catch(e) {}
+            }
+            if (video) {
+              try { video.currentTime = ${safePosition}; } catch(e) {}
+            }
             if (typeof actions['seekto'] === 'function') {
               try { actions['seekto']({ seekTime: ${safePosition} }); } catch(e) {}
-            } else if (video) {
-              video.currentTime = ${safePosition};
             }
             break;
+
           case 'SKIP_NEXT':
+            if (player && typeof player.nextVideo === 'function') {
+              try { player.nextVideo(); } catch(e) {}
+            }
             if (typeof actions['nexttrack'] === 'function') {
               try { actions['nexttrack'](); } catch(e) {}
-            } else {
-              var nextBtn = document.querySelector('.ytp-next-button, button[aria-label*="Next" i], .item-thumbnail-next');
-              if (nextBtn) {
-                nextBtn.click();
-              }
+            }
+            var nextBtn = document.querySelector(
+              '.ytp-next-button, button[aria-label*="Next" i], ytm-next-button, .item-thumbnail-next, .navigation-endpoint[aria-label*="Next" i]'
+            );
+            if (nextBtn) {
+              try { nextBtn.click(); } catch(e) {}
             }
             break;
+
           case 'SKIP_PREV':
+            if (player && typeof player.previousVideo === 'function') {
+              try { player.previousVideo(); } catch(e) {}
+            }
             if (typeof actions['previoustrack'] === 'function') {
               try { actions['previoustrack'](); } catch(e) {}
+            }
+            var prevBtn = document.querySelector(
+              '.ytp-prev-button, button[aria-label*="Previous" i], ytm-prev-button'
+            );
+            if (prevBtn) {
+              try { prevBtn.click(); } catch(e) {}
             } else if (video && video.currentTime > 3) {
               video.currentTime = 0;
             } else {
               window.history.back();
             }
             break;
+
           case 'STOP':
             window.__userWantsPaused = true;
             window.__isRemotePauseCommand = true;
-            if (video) video.pause();
+            if (player && typeof player.stopVideo === 'function') {
+              try { player.stopVideo(); } catch(e) {}
+            } else if (player && typeof player.pauseVideo === 'function') {
+              try { player.pauseVideo(); } catch(e) {}
+            }
+            if (video) {
+              try { video.pause(); } catch(e) {}
+            }
             break;
         }
       } catch(e) {

@@ -224,6 +224,16 @@ class MediaPlaybackService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
         )
 
+        // 0. Previous Video Action
+        val prevIntent = Intent(this, MediaPlaybackService::class.java).apply { action = ACTION_SKIP_PREV }
+        val prevPendingIntent = PendingIntent.getService(
+            this, 5, prevIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val prevAction = NotificationCompat.Action.Builder(
+            android.R.drawable.ic_media_previous, "Previous Video", prevPendingIntent
+        ).build()
+
         // 1. Rewind Action (-10s)
         val rewIntent = Intent(this, MediaPlaybackService::class.java).apply { action = ACTION_REWIND }
         val rewPendingIntent = PendingIntent.getService(
@@ -270,7 +280,8 @@ class MediaPlaybackService : Service() {
         if (sessionToken != null) {
             mediaStyle.setMediaSession(sessionToken)
         }
-        mediaStyle.setShowActionsInCompactView(0, 1, 2)
+        // In compact view: Rewind, Play/Pause, Forward (actions 1, 2, 3)
+        mediaStyle.setShowActionsInCompactView(1, 2, 3)
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -279,6 +290,7 @@ class MediaPlaybackService : Service() {
             .setContentIntent(contentPendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setStyle(mediaStyle)
+            .addAction(prevAction)
             .addAction(rewAction)
             .addAction(playPauseAction)
             .addAction(ffAction)
