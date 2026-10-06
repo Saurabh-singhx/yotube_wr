@@ -120,4 +120,160 @@ describe('mediaSessionScript', () => {
       expect(script).toContain('window.history.back()');
     });
   });
+
+  describe('DOM runtime behavior', () => {
+    let mockWindow: any;
+    let mockDocument: any;
+    let isPaused: boolean;
+    let currentTime: number;
+    let nextVideoCalled: boolean;
+    let prevVideoCalled: boolean;
+    let seekToTime: number | null;
+    let playVideoCalled: boolean;
+
+    beforeEach(() => {
+      isPaused = false;
+      currentTime = 100;
+      nextVideoCalled = false;
+      prevVideoCalled = false;
+      seekToTime = null;
+      playVideoCalled = false;
+
+      const { JSDOM } = require('jsdom');
+      const dom = new JSDOM(
+        `<!DOCTYPE html>
+        <html>
+        <body>
+          <div id="movie_player" class="html5-video-player">
+            <video class="video-stream"></video>
+            <button class="ytp-play-button" aria-label="Pause (k)"></button>
+            <button class="ytp-next-button" aria-label="Next (SHIFT+n)"></button>
+            <button class="ytp-prev-button" aria-label="Previous (SHIFT+p)"></button>
+          </div>
+          <div class="system-nav-bar"></div>
+        </body>
+        </html>`,
+        { runScripts: 'dangerously', url: 'https://m.youtube.com/watch?v=test1234' }
+      );
+
+      mockWindow = dom.window;
+      mockDocument = mockWindow.document;
+
+      mockWindow.HTMLMediaElement.prototype.pause = function () {
+        isPaused = true;
+      };
+      mockWindow.HTMLMediaElement.prototype.play = function () {
+        isPaused = false;
+        return Promise.resolve();
+      };
+
+      const video = mockDocument.querySelector('video');
+      Object.defineProperty(video, 'paused', { get: () => isPaused, configurable: true });
+      Object.defineProperty(video, 'currentTime', {
+        get: () => currentTime,
+        set: (v: number) => {
+          currentTime = v;
+        },
+        configurable: true,
+      });
+      Object.defineProperty(video, 'duration', { get: () => 300, configurable: true });
+
+      const moviePlayer = mockDocument.getElementById('movie_player');
+      moviePlayer.playVideo = () => {
+        playVideoCalled = true;
+        isPaused = false;
+      };
+      moviePlayer.pauseVideo = () => {
+        isPaused = true;
+      };
+      moviePlayer.nextVideo = () => {
+        nextVideoCalled = true;
+      };
+      moviePlayer.previousVideo = () => {
+        prevVideoCalled = true;
+      };
+      moviePlayer.seekTo = (t: number) => {
+        seekToTime = t;
+        currentTime = t;
+      };
+
+      mockWindow.eval(getBackgroundPlayScript());
+    });
+
+    it('spoofs Document visibility properties', () => {
+      expect(mockDocument.hidden).toBe(false);
+      expect(mockDocument.visibilityState).toBe('visible');
+    });
+
+    it('suppresses pause triggered by gesture outside the player (e.g. system swipe)', () => {
+      isPaused = false;
+      const touchEv = new mockWindow.MouseEvent('touchstart', { bubbles: true });
+      mockDocument.querySelector('.system-nav-bar').dispatchEvent(touchEv);
+
+      const video = mockDocument.querySelector('video');
+      video.pause();
+      expect(isPaused).toBe(false);
+    });
+
+    it('suppresses automated pause when app enters background', () => {
+      isPaused = false;
+      mockWindow.__isAppInBackground = true;
+
+      const video = mockDocument.querySelector('video');
+      video.pause();
+      expect(isPaused).toBe(false);
+    });
+
+    it('allows intentional pause command from notification while in background', () => {
+      isPaused = false;
+      mockWindow.__isAppInBackground = true;
+
+      mockWindow.eval(getRemoteControlScript('PAUSE'));
+      expect(isPaused).toBe(true);
+      expect(mockWindow.__userWantsPaused).toBe(true);
+    });
+
+    it('resumes playback from notification PLAY command while in background', () => {
+      isPaused = true;
+      mockWindow.__isAppInBackground = true;
+      mockWindow.__userWantsPaused = true;
+
+      mockWindow.eval(getRemoteControlScript('PLAY'));
+      expect(isPaused).toBe(false);
+      expect(mockWindow.__userWantsPaused).toBe(false);
+      expect(playVideoCalled).toBe(true);
+    });
+
+    it('controls track navigation via notification commands (SKIP_NEXT, SKIP_PREV)', () => {
+      mockWindow.eval(getRemoteControlScript('SKIP_NEXT'));
+      expect(nextVideoCalled).toBe(true);
+
+      mockWindow.eval(getRemoteControlScript('SKIP_PREV'));
+      expect(prevVideoCalled).toBe(true);
+    });
+
+    it('seeks track position via notification commands (REWIND, FAST_FORWARD)', () => {
+      currentTime = 50;
+      mockWindow.eval(getRemoteControlScript('REWIND'));
+      expect(seekToTime).toBe(40);
+
+      mockWindow.eval(getRemoteControlScript('FAST_FORWARD'));
+      expect(seekToTime).toBe(50);
+    });
+
+    it('allows direct player pause button click in foreground', () => {
+      mockWindow.__isAppInBackground = false;
+      isPaused = false;
+
+      const playerBtn = mockDocument.querySelector('.ytp-play-button');
+      const touchEv = new mockWindow.MouseEvent('touchstart', { bubbles: true });
+      playerBtn.dispatchEvent(touchEv);
+
+      const video = mockDocument.querySelector('video');
+      video.pause();
+      expect(isPaused).toBe(true);
+      expect(mockWindow.__userWantsPaused).toBe(true);
+    });
+  });
 });
+

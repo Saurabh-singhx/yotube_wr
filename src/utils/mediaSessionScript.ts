@@ -98,7 +98,6 @@ export function getBackgroundPlayScript(): string {
         }
 
         var recordUserGesture = function(ev) {
-          if (ev && ev.isTrusted === false) return;
           var now = Date.now();
           window.__lastUserGestureTime = now;
 
