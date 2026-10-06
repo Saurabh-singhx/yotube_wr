@@ -205,14 +205,13 @@ describe('mediaSessionScript', () => {
       expect(mockDocument.visibilityState).toBe('visible');
     });
 
-    it('suppresses pause triggered by gesture outside the player (e.g. system swipe)', () => {
+    it('allows video to pause and play naturally in foreground', () => {
+      mockWindow.__isAppInBackground = false;
       isPaused = false;
-      const touchEv = new mockWindow.MouseEvent('touchstart', { bubbles: true });
-      mockDocument.querySelector('.system-nav-bar').dispatchEvent(touchEv);
 
       const video = mockDocument.querySelector('video');
       video.pause();
-      expect(isPaused).toBe(false);
+      expect(isPaused).toBe(true);
     });
 
     it('suppresses automated pause when app enters background', () => {
@@ -261,18 +260,13 @@ describe('mediaSessionScript', () => {
       expect(seekToTime).toBe(50);
     });
 
-    it('allows direct player pause button click in foreground', () => {
+    it('allows direct player pause in foreground', () => {
       mockWindow.__isAppInBackground = false;
       isPaused = false;
-
-      const playerBtn = mockDocument.querySelector('.ytp-play-button');
-      const touchEv = new mockWindow.MouseEvent('touchstart', { bubbles: true });
-      playerBtn.dispatchEvent(touchEv);
 
       const video = mockDocument.querySelector('video');
       video.pause();
       expect(isPaused).toBe(true);
-      expect(mockWindow.__userWantsPaused).toBe(true);
     });
 
     it('suppresses background pause on mobile YouTube watch page even without desktop #movie_player container', () => {
@@ -323,6 +317,16 @@ describe('mediaSessionScript', () => {
       const previewVideo = previewDom.window.document.querySelector('video');
       previewVideo.pause();
       expect(previewPaused).toBe(true);
+    });
+
+    it('allows ended video to pause in background', () => {
+      isPaused = false;
+      mockWindow.__isAppInBackground = true;
+
+      const video = mockDocument.querySelector('video');
+      Object.defineProperty(video, 'ended', { get: () => true, configurable: true });
+      video.pause();
+      expect(isPaused).toBe(true);
     });
   });
 });

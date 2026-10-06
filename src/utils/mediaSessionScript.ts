@@ -144,18 +144,14 @@ export function getBackgroundPlayScript(): string {
         try {
           var origMediaPlay = HTMLMediaElement.prototype.play;
           HTMLMediaElement.prototype.play = function() {
-            var now = Date.now();
-            var isPlayerTap = (now - (window.__lastPlayerInteractionTime || 0)) < 2500;
-            // Only clear userWantsPaused if triggered by remote play command, explicit player tap, or not in paused state
-            if (window.__isRemotePlayCommand || isPlayerTap || !window.__userWantsPaused) {
-              window.__userWantsPaused = false;
-              window.__isRemotePlayCommand = false;
-            }
+            window.__userWantsPaused = false;
+            window.__isRemotePlayCommand = false;
             return origMediaPlay.apply(this, arguments);
           };
 
           var origMediaPause = HTMLMediaElement.prototype.pause;
           HTMLMediaElement.prototype.pause = function() {
+            // 1. If triggered by an explicit remote pause command (notification / lockscreen), allow pause
             var isRemotePause = window.__isRemotePauseCommand === true;
             if (isRemotePause) {
               window.__userWantsPaused = true;
@@ -163,59 +159,29 @@ export function getBackgroundPlayScript(): string {
               return origMediaPause.apply(this, arguments);
             }
 
+            // 2. Video naturally ended: allow pause
             if (this.ended) {
               return origMediaPause.apply(this, arguments);
             }
 
-            // Only intercept pause calls for the primary active player.
-            // Preview videos (feed previews, playlist thumbnails, etc.) must pause freely!
+            // 3. Thumbnail preview videos (feed previews, playlist previews) must pause freely
             var isPreviewEl = !!(this.closest && this.closest(
               '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
               'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
               '.video-preview, .feed-item-preview'
             ));
-
-            var path = window.location.pathname || '';
-            var isWatchPage = path.indexOf('/watch') !== -1 || path.indexOf('/embed') !== -1 || path.indexOf('/live') !== -1 || path.indexOf('/shorts') !== -1;
-
-            var isPlayerContainer = !!(this.closest && this.closest(
-              '#movie_player, .html5-video-player, #player, .player-container, #player-container-id, ' +
-              '.video-player, ytm-custom-control, ytm-mobile-player-overlay-renderer, ytm-watch'
-            ));
-
-            var isMainVideoEl = this.classList && (this.classList.contains('video-stream') || this.classList.contains('html5-main-video'));
-
-            var isPrimaryVideo = !isPreviewEl && (isPlayerContainer || isMainVideoEl || isWatchPage);
-
-            if (!isPrimaryVideo) {
+            if (isPreviewEl) {
               return origMediaPause.apply(this, arguments);
             }
 
-            // If user explicitly requested pause (via notification, lockscreen, or tap), ALWAYS allow pause!
-            if (window.__userWantsPaused || window.__isRemotePauseCommand) {
-              window.__userWantsPaused = true;
-              window.__isRemotePauseCommand = false;
+            // 4. In foreground: NEVER suppress or intercept pause!
+            // Allow YouTube and the user to pause, seek, switch videos, or buffer naturally.
+            if (window.__isAppInBackground !== true) {
               return origMediaPause.apply(this, arguments);
             }
 
-            // If the app is in the background and the user did NOT request pause,
-            // this is an automated background pause from YouTube/Chromium. Suppress it!
-            if (window.__isAppInBackground === true) {
-              return;
-            }
-
-            var now = Date.now();
-            var isPlayerInteraction = (now - (window.__lastPlayerInteractionTime || 0)) < 2500;
-
-            // In foreground, if direct player interaction did NOT occur,
-            // this is an automated pause triggered by background blur or visibility change. Suppress it!
-            if (!isPlayerInteraction) {
-              return;
-            }
-
-            // Legitimate user pause in foreground:
-            window.__userWantsPaused = true;
-            return origMediaPause.apply(this, arguments);
+            // 5. In background: Suppress automated pauses from YouTube/Chromium
+            return;
           };
         } catch(e) {}
 

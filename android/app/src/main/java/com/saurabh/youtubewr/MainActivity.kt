@@ -273,6 +273,29 @@ class MainActivity : ReactActivity() {
       }
   }
 
+  override fun onPause() {
+      super.onPause()
+      try {
+          val webView = findWebView(window.decorView)
+          webView?.resumeTimers()
+          webView?.evaluateJavascript(
+              "(function(){ window.__isAppInBackground = true; })(); true;",
+              null
+          )
+      } catch (_: Exception) {}
+  }
+
+  override fun onResume() {
+      super.onResume()
+      try {
+          val webView = findWebView(window.decorView)
+          webView?.evaluateJavascript(
+              "(function(){ window.__isAppInBackground = false; window.__userWantsPaused = false; })(); true;",
+              null
+          )
+      } catch (_: Exception) {}
+  }
+
   override fun onDestroy() {
       if (instance?.get() == this) {
           instance = null

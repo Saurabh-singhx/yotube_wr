@@ -12,8 +12,6 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -67,11 +65,6 @@ class MediaPlaybackService : Service() {
     private var currentBitmap: Bitmap? = null
     private var lastLoadedThumbnailUrl = ""
 
-    private var audioManager: AudioManager? = null
-    private var audioFocusRequest: AudioFocusRequest? = null
-    private var audioFocusChangeListener: AudioManager.OnAudioFocusChangeListener? = null
-    private var hasAudioFocus = false
-    private var resumeOnFocusGain = false
     private var isNoisyReceiverRegistered = false
 
     private val noisyReceiver = object : BroadcastReceiver() {
@@ -104,46 +97,6 @@ class MediaPlaybackService : Service() {
         wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "YouTubeWR::WifiLock")?.apply {
             setReferenceCounted(false)
         }
-
-        audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-        audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-            when (focusChange) {
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                    if (isPlaying) {
-                        resumeOnFocusGain = true
-                        isPlaying = false
-                        updatePlaybackState()
-                        updateNotification()
-                        MainActivity.executeRemoteMediaAction("PAUSE")
-                        onMediaAction?.invoke("PAUSE", null)
-                    }
-                }
-                AudioManager.AUDIOFOCUS_LOSS -> {
-                    resumeOnFocusGain = false
-                    if (isPlaying) {
-                        isPlaying = false
-                        updatePlaybackState()
-                        updateNotification()
-                        MainActivity.executeRemoteMediaAction("PAUSE")
-                        onMediaAction?.invoke("PAUSE", null)
-                    }
-                    abandonAudioFocus()
-                }
-                AudioManager.AUDIOFOCUS_GAIN -> {
-                    if (resumeOnFocusGain && !isPlaying) {
-                        resumeOnFocusGain = false
-                        isPlaying = true
-                        requestAudioFocus()
-                        updatePlaybackState()
-                        updateNotification()
-                        MainActivity.executeRemoteMediaAction("PLAY")
-                        onMediaAction?.invoke("PLAY", null)
-                    }
-                }
-            }
-        }
-
         try {
             registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
             isNoisyReceiverRegistered = true
@@ -153,46 +106,6 @@ class MediaPlaybackService : Service() {
         setupMediaSession()
     }
 
-    private fun requestAudioFocus(): Boolean {
-        if (hasAudioFocus) return true
-        val am = audioManager ?: return false
-        val listener = audioFocusChangeListener ?: return false
-
-        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val playbackAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build()
-            val focusReq = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(playbackAttributes)
-                .setAcceptsDelayedFocusGain(true)
-                .setOnAudioFocusChangeListener(listener)
-                .build()
-            audioFocusRequest = focusReq
-            am.requestAudioFocus(focusReq)
-        } else {
-            @Suppress("DEPRECATION")
-            am.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
-        }
-
-        hasAudioFocus = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
-        return hasAudioFocus
-    }
-
-    private fun abandonAudioFocus() {
-        if (!hasAudioFocus) return
-        val am = audioManager ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
-        } else {
-            audioFocusChangeListener?.let {
-                @Suppress("DEPRECATION")
-                am.abandonAudioFocus(it)
-            }
-        }
-        hasAudioFocus = false
-        resumeOnFocusGain = false
-    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -221,7 +134,6 @@ class MediaPlaybackService : Service() {
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() {
                     isPlaying = true
-                    requestAudioFocus()
                     updatePlaybackState()
                     updateNotification()
                     MainActivity.executeRemoteMediaAction("PLAY")
@@ -313,9 +225,8 @@ class MediaPlaybackService : Service() {
 
         mediaSession?.setMetadata(metadataBuilder.build())
 
-        // Manage WakeLock, WifiLock, and Audio Focus to prevent device from sleeping or muting while playing
+        // Manage WakeLock and WifiLock to prevent device from sleeping while playing
         if (isPlaying) {
-            requestAudioFocus()
             if (wakeLock?.isHeld != true) {
                 wakeLock?.acquire(12 * 60 * 60 * 1000L) // 12h safety ceiling
             }
@@ -323,7 +234,6 @@ class MediaPlaybackService : Service() {
                 wifiLock?.acquire()
             }
         } else {
-            abandonAudioFocus()
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
@@ -445,7 +355,6 @@ class MediaPlaybackService : Service() {
         when (intent?.action) {
             ACTION_PLAY -> {
                 isPlaying = true
-                requestAudioFocus()
                 updatePlaybackState()
                 updateNotification()
                 MainActivity.executeRemoteMediaAction("PLAY")
@@ -461,7 +370,6 @@ class MediaPlaybackService : Service() {
             ACTION_TOGGLE_PLAY -> {
                 isPlaying = !isPlaying
                 val action = if (isPlaying) "PLAY" else "PAUSE"
-                if (isPlaying) requestAudioFocus()
                 updatePlaybackState()
                 updateNotification()
                 MainActivity.executeRemoteMediaAction(action)
@@ -544,7 +452,6 @@ class MediaPlaybackService : Service() {
 
     private fun stopServiceSafely() {
         try {
-            abandonAudioFocus()
             if (isNoisyReceiverRegistered) {
                 try {
                     unregisterReceiver(noisyReceiver)
@@ -579,7 +486,6 @@ class MediaPlaybackService : Service() {
 
     override fun onDestroy() {
         instance = null
-        abandonAudioFocus()
         if (isNoisyReceiverRegistered) {
             try {
                 unregisterReceiver(noisyReceiver)
