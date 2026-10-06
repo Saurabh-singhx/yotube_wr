@@ -421,8 +421,13 @@ export const youtubeAdBlocker: ExtensionManifest = {
         var freezeStallCount = 0;
 
         function unfreezeWatchdog() {
-          var v = document.querySelector('video');
+          var v = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream');
+          if (!v) v = document.querySelector('video');
           if (!v || v.paused || v.ended || v.readyState < 2 || checkIsAd(v) || window.__userWantsPaused) {
+            freezeStallCount = 0;
+            return;
+          }
+          if (v.closest && v.closest('.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ytm-playlist-media-item, ytd-rich-item-renderer')) {
             freezeStallCount = 0;
             return;
           }

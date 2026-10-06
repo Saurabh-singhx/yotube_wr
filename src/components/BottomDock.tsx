@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Platform, LayoutAnimation, UIManager } from 'react-native';
+import { View, StyleSheet, Platform, LayoutAnimation, UIManager, Animated, Easing } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { NeumorphicBox } from './neumorphic/NeumorphicBox';
@@ -57,6 +57,36 @@ export const BottomDock: React.FC<BottomDockProps> = ({
       return () => clearTimeout(timer);
     }
   }, [isVideoPlaying, isManuallyExpanded]);
+
+  // Animated spin for reload button when isLoading is active
+  const [spinAnim] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    if (isLoading) {
+      spinAnim.setValue(0);
+      const loop = Animated.loop(
+        Animated.timing(spinAnim, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        })
+      );
+      loop.start();
+      return () => loop.stop();
+    } else {
+      spinAnim.stopAnimation();
+      Animated.timing(spinAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isLoading, spinAnim]);
+
+  const spin = spinAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   const handleExpand = () => {
     triggerHaptic();
@@ -169,18 +199,21 @@ export const BottomDock: React.FC<BottomDockProps> = ({
           {/* 4. Reload / Refresh Button */}
           <NeumorphicButton
             onPress={() => {
+              if (isLoading) return;
               triggerHaptic();
               onReload();
             }}
             size="sm"
-            style={styles.dockItem}
+            style={[styles.dockItem, isLoading && { opacity: 0.85 }]}
             borderRadius={23}
             icon={
-              <Ionicons
-                name="reload"
-                size={20}
-                color={palette.textPrimary}
-              />
+              <Animated.View style={{ transform: [{ rotate: spin }] }}>
+                <Ionicons
+                  name="reload"
+                  size={20}
+                  color={isLoading ? palette.primary : palette.textPrimary}
+                />
+              </Animated.View>
             }
           />
 

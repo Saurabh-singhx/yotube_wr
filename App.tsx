@@ -56,6 +56,17 @@ function MainApp() {
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
+  // Auto-recovery watchdog to guarantee reload/loading state never gets stuck
+  useEffect(() => {
+    if (isLoading) {
+      const watchdog = setTimeout(() => {
+        setIsLoading(false);
+        setProgress(1);
+      }, 7000);
+      return () => clearTimeout(watchdog);
+    }
+  }, [isLoading]);
+
   const [isDesktopMode, setIsDesktopMode] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
@@ -366,7 +377,6 @@ function MainApp() {
     triggerHaptic();
     if (webViewRef.current) {
       webViewRef.current.goBack();
-      webViewRef.current.injectJavaScript('window.history.back(); true;');
     }
   };
 
@@ -374,16 +384,30 @@ function MainApp() {
     triggerHaptic();
     if (webViewRef.current) {
       webViewRef.current.goForward();
-      webViewRef.current.injectJavaScript('window.history.forward(); true;');
     }
   };
 
+  const isReloadingRef = useRef(false);
   const handleReload = () => {
     triggerHaptic();
+    if (isReloadingRef.current) return;
+    isReloadingRef.current = true;
+
+    // Reset playback & fullscreen flags so dock/HUD restores cleanly
+    setIsVideoPlaying(false);
+    setIsWebFullscreen(false);
+    userExitedFullscreenInLandscapeRef.current = false;
+
+    setIsLoading(true);
+    setProgress(0.1);
+
     if (webViewRef.current) {
       webViewRef.current.reload();
-      webViewRef.current.injectJavaScript('window.location.reload(); true;');
     }
+
+    setTimeout(() => {
+      isReloadingRef.current = false;
+    }, 1000);
   };
 
   const handleGoHome = () => {
@@ -533,8 +557,24 @@ function MainApp() {
             }
           }}
           onLoadStart={() => setIsLoading(true)}
-          onLoadEnd={() => setIsLoading(false)}
-          onLoadProgress={({ nativeEvent }) => setProgress(nativeEvent.progress)}
+          onLoadEnd={() => {
+            setIsLoading(false);
+            setProgress(1);
+          }}
+          onLoadProgress={({ nativeEvent }) => {
+            setProgress(nativeEvent.progress);
+            if (nativeEvent.progress >= 1) {
+              setIsLoading(false);
+            }
+          }}
+          onError={() => {
+            setIsLoading(false);
+            setProgress(1);
+          }}
+          onHttpError={() => {
+            setIsLoading(false);
+            setProgress(1);
+          }}
           allowsFullscreenVideo={true}
           allowsInlineMediaPlayback={true}
           mediaPlaybackRequiresUserAction={false}

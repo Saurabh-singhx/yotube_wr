@@ -148,6 +148,17 @@ export function getBackgroundPlayScript(): string {
               return origMediaPause.apply(this, arguments);
             }
 
+            // Only intercept pause calls for the primary active player.
+            // Preview videos (feed previews, playlist thumbnails, etc.) must pause freely!
+            var isInsidePlayer = !!(this.closest && this.closest('#movie_player, .html5-video-player, #player, .player-container'));
+            var isPreviewEl = !!(this.closest && this.closest(
+              '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
+              'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer'
+            ));
+            if (!isInsidePlayer || isPreviewEl) {
+              return origMediaPause.apply(this, arguments);
+            }
+
             // If the app is in the background (minimized, screen locked, app switched),
             // NEVER allow automated background pauses from YouTube, blur, visibility loss, or Chromium!
             // This completely prevents background playback from pausing on app minimize or looping.
@@ -342,8 +353,22 @@ export function getMediaObserverScript(): string {
         window.__RN_EXTENSION_BRIDGE__.send('media-session', 'MEDIA_STATE_UPDATE', meta);
       }
 
+      function isMainPlayerVideo(video) {
+        if (!video) return false;
+        var isInsidePlayer = !!(video.closest && video.closest('#movie_player, .html5-video-player, #player, .player-container'));
+        if (isInsidePlayer) return true;
+        var isPreview = !!(video.closest && video.closest(
+          '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
+          'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
+          '.video-preview, .feed-item-preview'
+        ));
+        if (isPreview) return false;
+        var path = window.location.pathname || '';
+        return path.indexOf('/watch') !== -1 || path.indexOf('/embed') !== -1 || path.indexOf('/live') !== -1;
+      }
+
       function unmuteAudio(video) {
-        if (!video) return;
+        if (!video || !isMainPlayerVideo(video)) return;
         try {
           var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
           var isAd = false;
@@ -363,23 +388,17 @@ export function getMediaObserverScript(): string {
           }
           if (player) {
             if (typeof player.isMuted === 'function' && player.isMuted()) {
-              if (typeof player.unMute === 'function') player.unMute();
+              player.unMute();
             }
             if (typeof player.getVolume === 'function' && player.getVolume() === 0) {
-              if (typeof player.setVolume === 'function') player.setVolume(100);
+              player.setVolume(100);
             }
-          }
-          var unmuteBtn = document.querySelector(
-            '.ytp-unmute, .ytp-unmute-inner, button[aria-label*="unmute" i], .volume-icon-muted, ytm-unmute-button'
-          );
-          if (unmuteBtn) {
-            try { unmuteBtn.click(); } catch(e) {}
           }
         } catch(e) {}
       }
 
       function attachToVideo(video) {
-        if (!video || video.__ytwrAttached) return;
+        if (!video || !isMainPlayerVideo(video) || video.__ytwrAttached) return;
         video.__ytwrAttached = true;
 
         var events = ['play', 'playing', 'pause', 'ended', 'timeupdate', 'loadedmetadata', 'ratechange'];
@@ -401,14 +420,16 @@ export function getMediaObserverScript(): string {
         }
       }
 
-      // Initial check
-      document.querySelectorAll('video').forEach(attachToVideo);
+      // Initial check strictly on main player videos
+      document.querySelectorAll('#movie_player video, .html5-video-player video, #player video, video.video-stream').forEach(attachToVideo);
 
       // Mutation observer for dynamic video element changes
       try {
         var observer = new MutationObserver(function() {
           document.querySelectorAll('video').forEach(function(v) {
-            attachToVideo(v);
+            if (isMainPlayerVideo(v)) {
+              attachToVideo(v);
+            }
           });
         });
         observer.observe(document.body || document.documentElement, {
@@ -421,10 +442,9 @@ export function getMediaObserverScript(): string {
       window.addEventListener('yt-navigate-finish', function() {
         window.__userWantsPaused = false;
         setTimeout(function() {
-          var v = document.querySelector('video');
-          if (v) {
+          var v = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream');
+          if (v && isMainPlayerVideo(v)) {
             attachToVideo(v);
-            unmuteAudio(v);
             reportMediaState(v, true);
           } else {
             if (window.__RN_EXTENSION_BRIDGE__) {
@@ -435,19 +455,6 @@ export function getMediaObserverScript(): string {
           }
         }, 600);
       });
-
-      // Background playback keepalive watchdog: resumes playback if paused without user intention
-      setInterval(function() {
-        if (window.__userWantsPaused) return;
-        var videos = document.querySelectorAll('video');
-        for (var i = 0; i < videos.length; i++) {
-          var v = videos[i];
-          if (v.paused && !v.ended && v.readyState >= 2 && !window.__userWantsPaused) {
-            unmuteAudio(v);
-            v.play().catch(function() {});
-          }
-        }
-      }, 1000);
     })();
   `;
 }
