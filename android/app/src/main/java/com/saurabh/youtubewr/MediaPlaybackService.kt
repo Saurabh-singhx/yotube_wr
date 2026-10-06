@@ -334,11 +334,13 @@ class MediaPlaybackService : Service() {
             ACTION_REWIND -> {
                 currentPosition = (currentPosition - 10.0).coerceAtLeast(0.0)
                 updatePlaybackState()
+                updateNotification()
                 onMediaAction?.invoke("REWIND", null)
             }
             ACTION_FAST_FORWARD -> {
                 currentPosition = (currentPosition + 10.0).coerceAtMost(currentDuration)
                 updatePlaybackState()
+                updateNotification()
                 onMediaAction?.invoke("FAST_FORWARD", null)
             }
             ACTION_SKIP_NEXT -> {
@@ -420,6 +422,11 @@ class MediaPlaybackService : Service() {
             mediaSession = null
         } catch (_: Exception) {}
         stopSelf()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        stopServiceSafely()
     }
 
     override fun onDestroy() {

@@ -108,13 +108,21 @@ export function getBackgroundPlayScript(): string {
             if (target && target.closest) {
               var isPlayerEl = target.closest(
                 'video, .html5-video-player, #movie_player, .ytp-play-button, ytm-play-pause-button, ' +
-                'button[aria-label*="pause" i], button[aria-label*="play" i], .ytp-chrome-bottom, .video-stream'
+                'button[aria-label*="pause" i], button[aria-label*="play" i], .ytp-chrome-bottom, .video-stream, ' +
+                '.player-controls-middle, [data-video-id], .ytp-large-play-button'
               );
               if (isPlayerEl) {
                 window.__lastPlayerInteractionTime = now;
               }
             }
           } catch(_) {}
+
+          if (ev && ev.type === 'keydown') {
+            var key = ev.code || ev.key;
+            if (key === 'Space' || key === ' ' || key === 'KeyK' || key === 'k' || key === 'MediaPlayPause') {
+              window.__lastPlayerInteractionTime = now;
+            }
+          }
         };
         ['touchstart', 'touchend', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'keydown'].forEach(function(ev) {
           window.addEventListener(ev, recordUserGesture, true);
@@ -126,7 +134,7 @@ export function getBackgroundPlayScript(): string {
           var origMediaPlay = HTMLMediaElement.prototype.play;
           HTMLMediaElement.prototype.play = function() {
             var now = Date.now();
-            var isPlayerTap = (now - (window.__lastPlayerInteractionTime || 0)) < 1500;
+            var isPlayerTap = (now - (window.__lastPlayerInteractionTime || 0)) < 2500;
             // Only clear userWantsPaused if triggered by remote play command, explicit player tap, or not in paused state
             if (window.__isRemotePlayCommand || isPlayerTap || !window.__userWantsPaused) {
               window.__userWantsPaused = false;
@@ -173,12 +181,11 @@ export function getBackgroundPlayScript(): string {
             }
 
             var now = Date.now();
-            var isPlayerInteraction = (now - (window.__lastPlayerInteractionTime || 0)) < 1800;
-            var isRecentGesture = (now - (window.__lastUserGestureTime || 0)) < 1500;
+            var isPlayerInteraction = (now - (window.__lastPlayerInteractionTime || 0)) < 2500;
 
-            // In foreground, if neither direct player interaction nor gesture occurred,
+            // In foreground, if direct player interaction did NOT occur,
             // this is an automated pause triggered by background blur or visibility change. Suppress it!
-            if (!isPlayerInteraction && !isRecentGesture) {
+            if (!isPlayerInteraction) {
               return;
             }
 

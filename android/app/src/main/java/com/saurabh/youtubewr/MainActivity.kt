@@ -53,21 +53,23 @@ class MainActivity : ReactActivity() {
   }
 
   /**
-    * Align the back button behavior with Android S
-    * where moving root activities to background instead of finishing activities.
-    * @see <a href="https://developer.android.com/reference/android/app/Activity#onBackPressed()">onBackPressed</a>
-    */
+   * Move root activity to background on back press so background media playback continues uninterrupted.
+   */
   override fun invokeDefaultOnBackPressed() {
-      if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R) {
-          if (!moveTaskToBack(false)) {
-              // For non-root activities, use the default implementation to finish them.
-              super.invokeDefaultOnBackPressed()
-          }
-          return
+      if (!moveTaskToBack(true)) {
+          super.invokeDefaultOnBackPressed()
       }
+  }
 
-      // Use the default back button implementation on Android S
-      // because it's doing more than [Activity.moveTaskToBack] in fact.
-      super.invokeDefaultOnBackPressed()
+  override fun onDestroy() {
+      super.onDestroy()
+      if (isFinishing) {
+          try {
+              val stopIntent = android.content.Intent(this, MediaPlaybackService::class.java).apply {
+                  action = MediaPlaybackService.ACTION_STOP
+              }
+              startService(stopIntent)
+          } catch (_: Exception) {}
+      }
   }
 }
