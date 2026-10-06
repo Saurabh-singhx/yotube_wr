@@ -22,10 +22,10 @@ describe('mediaSessionScript', () => {
 
     it('intercepts and suppresses visibilitychange and pagehide listeners', () => {
       const script = getBackgroundPlayScript();
-      expect(script).toContain("type === 'visibilitychange'");
-      expect(script).toContain("type === 'webkitvisibilitychange'");
-      expect(script).toContain("type === 'pagehide'");
-      expect(script).toContain('EventTarget.prototype.addEventListener');
+      expect(script).toContain('visibilitychange');
+      expect(script).toContain('webkitvisibilitychange');
+      expect(script).toContain('pagehide');
+      expect(script).toContain('EventTarget');
       expect(script).toContain('swallowEvent');
     });
 
@@ -273,6 +273,56 @@ describe('mediaSessionScript', () => {
       video.pause();
       expect(isPaused).toBe(true);
       expect(mockWindow.__userWantsPaused).toBe(true);
+    });
+
+    it('suppresses background pause on mobile YouTube watch page even without desktop #movie_player container', () => {
+      const { JSDOM } = require('jsdom');
+      const mobileDom = new JSDOM(
+        `<!DOCTYPE html>
+        <html>
+        <body>
+          <div id="player-container-id" class="video-player">
+            <video class="video-stream"></video>
+          </div>
+        </body>
+        </html>`,
+        { runScripts: 'dangerously', url: 'https://m.youtube.com/watch?v=mobile123' }
+      );
+      let mobilePaused = false;
+      mobileDom.window.HTMLMediaElement.prototype.pause = function () {
+        mobilePaused = true;
+      };
+      mobileDom.window.eval(getBackgroundPlayScript());
+      mobileDom.window.__isAppInBackground = true;
+
+      const mobileVideo = mobileDom.window.document.querySelector('video');
+      mobileVideo.pause();
+      expect(mobilePaused).toBe(false);
+    });
+
+    it('allows thumbnail preview videos to pause freely', () => {
+      const { JSDOM } = require('jsdom');
+      const previewDom = new JSDOM(
+        `<!DOCTYPE html>
+        <html>
+        <body>
+          <div class="inline-preview ytm-video-preview">
+            <video></video>
+          </div>
+        </body>
+        </html>`,
+        { runScripts: 'dangerously', url: 'https://m.youtube.com' }
+      );
+      let previewPaused = false;
+      previewDom.window.HTMLMediaElement.prototype.pause = function () {
+        previewPaused = true;
+      };
+      previewDom.window.eval(getBackgroundPlayScript());
+      previewDom.window.__isAppInBackground = true;
+
+      const previewVideo = previewDom.window.document.querySelector('video');
+      previewVideo.pause();
+      expect(previewPaused).toBe(true);
     });
   });
 });

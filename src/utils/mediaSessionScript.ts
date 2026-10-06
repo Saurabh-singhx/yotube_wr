@@ -64,21 +64,33 @@ export function getBackgroundPlayScript(): string {
           document.addEventListener('focusout', swallowEvent, true);
         } catch(e) {}
 
-        // 4. Drop visibilitychange, webkitvisibilitychange, pagehide & blur listeners at the EventTarget level
+        // 4. Drop visibilitychange, webkitvisibilitychange, pagehide & blur listeners at EventTarget, Window, and Document levels
         try {
-          var origEventTargetAddEventListener = EventTarget.prototype.addEventListener;
-          EventTarget.prototype.addEventListener = function(type, listener, options) {
-            if (
-              type === 'visibilitychange' ||
-              type === 'webkitvisibilitychange' ||
-              type === 'pagehide' ||
-              type === 'blur' ||
-              type === 'focusout'
-            ) {
-              return;
-            }
-            return origEventTargetAddEventListener.call(this, type, listener, options);
+          var dropEvents = ['visibilitychange', 'webkitvisibilitychange', 'pagehide', 'blur', 'focusout'];
+          var shouldDrop = function(type) {
+            return dropEvents.indexOf(type) !== -1;
           };
+
+          var patchAddEventListener = function(target) {
+            if (!target || !target.addEventListener) return;
+            var orig = target.addEventListener;
+            target.addEventListener = function(type, listener, options) {
+              if (shouldDrop(type)) return;
+              return orig.call(this, type, listener, options);
+            };
+          };
+
+          if (window.EventTarget && window.EventTarget.prototype) {
+            patchAddEventListener(window.EventTarget.prototype);
+          }
+          if (window.Window && window.Window.prototype) {
+            patchAddEventListener(window.Window.prototype);
+          }
+          if (window.Document && window.Document.prototype) {
+            patchAddEventListener(window.Document.prototype);
+          }
+          patchAddEventListener(window);
+          patchAddEventListener(document);
         } catch(e) {}
 
         // 5. Overwrite hasFocus to always return true
@@ -157,12 +169,25 @@ export function getBackgroundPlayScript(): string {
 
             // Only intercept pause calls for the primary active player.
             // Preview videos (feed previews, playlist thumbnails, etc.) must pause freely!
-            var isInsidePlayer = !!(this.closest && this.closest('#movie_player, .html5-video-player, #player, .player-container'));
             var isPreviewEl = !!(this.closest && this.closest(
               '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
-              'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer'
+              'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
+              '.video-preview, .feed-item-preview'
             ));
-            if (!isInsidePlayer || isPreviewEl) {
+
+            var path = window.location.pathname || '';
+            var isWatchPage = path.indexOf('/watch') !== -1 || path.indexOf('/embed') !== -1 || path.indexOf('/live') !== -1 || path.indexOf('/shorts') !== -1;
+
+            var isPlayerContainer = !!(this.closest && this.closest(
+              '#movie_player, .html5-video-player, #player, .player-container, #player-container-id, ' +
+              '.video-player, ytm-custom-control, ytm-mobile-player-overlay-renderer, ytm-watch'
+            ));
+
+            var isMainVideoEl = this.classList && (this.classList.contains('video-stream') || this.classList.contains('html5-main-video'));
+
+            var isPrimaryVideo = !isPreviewEl && (isPlayerContainer || isMainVideoEl || isWatchPage);
+
+            if (!isPrimaryVideo) {
               return origMediaPause.apply(this, arguments);
             }
 
@@ -361,16 +386,24 @@ export function getMediaObserverScript(): string {
 
       function isMainPlayerVideo(video) {
         if (!video) return false;
-        var isInsidePlayer = !!(video.closest && video.closest('#movie_player, .html5-video-player, #player, .player-container'));
-        if (isInsidePlayer) return true;
         var isPreview = !!(video.closest && video.closest(
           '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
           'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
           '.video-preview, .feed-item-preview'
         ));
         if (isPreview) return false;
+
+        var isPlayerContainer = !!(video.closest && video.closest(
+          '#movie_player, .html5-video-player, #player, .player-container, #player-container-id, ' +
+          '.video-player, ytm-custom-control, ytm-mobile-player-overlay-renderer, ytm-watch'
+        ));
+        if (isPlayerContainer) return true;
+
+        var isMainVideoEl = video.classList && (video.classList.contains('video-stream') || video.classList.contains('html5-main-video'));
+        if (isMainVideoEl) return true;
+
         var path = window.location.pathname || '';
-        return path.indexOf('/watch') !== -1 || path.indexOf('/embed') !== -1 || path.indexOf('/live') !== -1;
+        return path.indexOf('/watch') !== -1 || path.indexOf('/embed') !== -1 || path.indexOf('/live') !== -1 || path.indexOf('/shorts') !== -1;
       }
 
       function unmuteAudio(video) {
@@ -470,8 +503,29 @@ export function getRemoteControlScript(action: string, position?: number): strin
   return `
     (function() {
       try {
-        var video = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream') || document.querySelector('video');
-        var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+        function getTargetVideo() {
+          var videos = document.querySelectorAll('video');
+          for (var i = 0; i < videos.length; i++) {
+            var v = videos[i];
+            var isPreview = !!(v.closest && v.closest(
+              '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
+              'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
+              '.video-preview, .feed-item-preview'
+            ));
+            if (!isPreview) return v;
+          }
+          return document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream, video');
+        }
+
+        function getTargetPlayer() {
+          return document.getElementById('movie_player') ||
+                 document.querySelector('.html5-video-player') ||
+                 document.getElementById('player') ||
+                 document.querySelector('.video-player');
+        }
+
+        var video = getTargetVideo();
+        var player = getTargetPlayer();
         var actions = window.__ytwrMediaActions || {};
 
         switch ('${action}') {
@@ -495,6 +549,13 @@ export function getRemoteControlScript(action: string, position?: number): strin
                 video.play().catch(function(){});
               } catch(e) {}
             }
+            var playBtn = document.querySelector(
+              '.ytp-play-button[aria-label*="Play" i], ytm-play-pause-button[aria-label*="Play" i], ' +
+              'button[aria-label*="Play" i], .ytp-large-play-button, .player-control-play'
+            );
+            if (playBtn && video && video.paused) {
+              try { playBtn.click(); } catch(e) {}
+            }
             break;
 
           case 'PAUSE':
@@ -508,6 +569,13 @@ export function getRemoteControlScript(action: string, position?: number): strin
             }
             if (video) {
               try { video.pause(); } catch(e) {}
+            }
+            var pauseBtn = document.querySelector(
+              '.ytp-play-button[aria-label*="Pause" i], ytm-play-pause-button[aria-label*="Pause" i], ' +
+              'button[aria-label*="Pause" i]'
+            );
+            if (pauseBtn && video && !video.paused) {
+              try { pauseBtn.click(); } catch(e) {}
             }
             break;
 
