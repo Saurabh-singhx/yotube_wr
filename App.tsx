@@ -124,13 +124,15 @@ function MainApp() {
     const eventEmitter = new NativeEventEmitter(NativeModules.MediaSessionModule);
     const sub = eventEmitter.addListener(
       'MediaSessionAction',
-      (event: { action: string; position?: number }) => {
+      (event: { action: string; position?: number; scriptHandled?: boolean }) => {
         if (event.action === 'PAUSE' || event.action === 'STOP') {
           setIsVideoPlaying(false);
         } else if (event.action === 'PLAY') {
           setIsVideoPlaying(true);
         }
-        if (webViewRef.current) {
+        // If native MainActivity already executed the remote script directly on the WebView,
+        // do not execute it a second time to prevent double-toggle oscillations.
+        if (!event.scriptHandled && webViewRef.current) {
           const script = getRemoteControlScript(event.action, event.position);
           webViewRef.current.injectJavaScript(script);
         }
@@ -153,8 +155,18 @@ function MainApp() {
         webViewRef.current.injectJavaScript(`
           (function() {
             window.__isAppInBackground = ${isBackground};
-            if (!${isBackground}) {
-              window.__lastUserGestureTime = Date.now();
+            if (${isBackground}) {
+              window.__windowHasBlur = true;
+              window.__lastBlurTime = Date.now();
+              window.__lastUserGestureTime = 0;
+              window.__lastPlayerInteractionTime = 0;
+              window.__lastPauseButtonTapTime = 0;
+            } else {
+              window.__windowHasBlur = false;
+              window.__lastBlurTime = 0;
+              window.__lastUserGestureTime = 0;
+              window.__lastPlayerInteractionTime = 0;
+              window.__lastPauseButtonTapTime = 0;
             }
           })();
           true;

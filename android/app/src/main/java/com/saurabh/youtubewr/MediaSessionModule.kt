@@ -28,15 +28,16 @@ class MediaSessionModule(private val reactContext: ReactApplicationContext) :
 
     init {
         // Wire callbacks from MediaPlaybackService to React Native bridge
-        MediaPlaybackService.onMediaAction = { action, position ->
-            sendMediaActionEvent(action, position)
+        MediaPlaybackService.onMediaAction = { action, position, scriptHandled ->
+            sendMediaActionEvent(action, position, scriptHandled)
         }
     }
 
-    private fun sendMediaActionEvent(action: String, position: Double?) {
+    private fun sendMediaActionEvent(action: String, position: Double?, scriptHandled: Boolean) {
         try {
             val params = Arguments.createMap().apply {
                 putString("action", action)
+                putBoolean("scriptHandled", scriptHandled)
                 if (position != null) {
                     putDouble("position", position)
                 }

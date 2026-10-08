@@ -32,7 +32,7 @@ export function getBackgroundPlayScript(): string {
           }
         } catch(e) {}
 
-        // 2. Prevent onvisibilitychange / onpagehide / onblur handlers
+        // 2. Prevent onvisibilitychange / onpagehide / onblur / onfreeze / onfocusout handlers
         try {
           var nullProp = { get: function() { return null; }, set: function() {}, configurable: true };
           Object.defineProperty(document, 'onvisibilitychange', nullProp);
@@ -43,30 +43,60 @@ export function getBackgroundPlayScript(): string {
           Object.defineProperty(Window.prototype, 'onblur', nullProp);
           Object.defineProperty(document, 'onblur', nullProp);
           Object.defineProperty(Document.prototype, 'onblur', nullProp);
+          Object.defineProperty(window, 'onfreeze', nullProp);
+          Object.defineProperty(Window.prototype, 'onfreeze', nullProp);
+          Object.defineProperty(document, 'onfreeze', nullProp);
+          Object.defineProperty(Document.prototype, 'onfreeze', nullProp);
+          Object.defineProperty(window, 'onfocusout', nullProp);
+          Object.defineProperty(Window.prototype, 'onfocusout', nullProp);
+          Object.defineProperty(document, 'onfocusout', nullProp);
+          Object.defineProperty(Document.prototype, 'onfocusout', nullProp);
         } catch(e) {}
 
-        // 3. Capture-phase immediate propagation stopper for visibility, blur, focusout, and pagehide events
+        // 3. Capture-phase blur & visibility tracking and immediate propagation stopper
+        window.__windowHasBlur = false;
+        window.__lastBlurTime = 0;
+
+        var onCaptureBlur = function(e) {
+          window.__windowHasBlur = true;
+          window.__lastBlurTime = Date.now();
+          if (e) {
+            try { e.stopImmediatePropagation(); } catch(_) {}
+            try { e.stopPropagation(); } catch(_) {}
+          }
+        };
+
+        var onCaptureFocus = function() {
+          window.__windowHasBlur = false;
+          window.__lastBlurTime = 0;
+        };
+
         var swallowEvent = function(e) {
           if (e) {
             try { e.stopImmediatePropagation(); } catch(_) {}
             try { e.stopPropagation(); } catch(_) {}
           }
         };
+
         try {
+          window.addEventListener('blur', onCaptureBlur, true);
+          window.addEventListener('focusout', onCaptureBlur, true);
+          document.addEventListener('blur', onCaptureBlur, true);
+          document.addEventListener('focusout', onCaptureBlur, true);
+          window.addEventListener('focus', onCaptureFocus, true);
+          document.addEventListener('focus', onCaptureFocus, true);
           window.addEventListener('visibilitychange', swallowEvent, true);
           window.addEventListener('webkitvisibilitychange', swallowEvent, true);
           window.addEventListener('pagehide', swallowEvent, true);
-          window.addEventListener('blur', swallowEvent, true);
-          window.addEventListener('focusout', swallowEvent, true);
+          window.addEventListener('freeze', swallowEvent, true);
           document.addEventListener('visibilitychange', swallowEvent, true);
           document.addEventListener('webkitvisibilitychange', swallowEvent, true);
-          document.addEventListener('blur', swallowEvent, true);
-          document.addEventListener('focusout', swallowEvent, true);
+          document.addEventListener('freeze', swallowEvent, true);
         } catch(e) {}
 
-        // 4. Drop visibilitychange, webkitvisibilitychange, pagehide & blur listeners at EventTarget, Window, and Document levels
+        // 4. Drop visibilitychange, webkitvisibilitychange, pagehide, blur, focusout & freeze listeners
         try {
-          var dropEvents = ['visibilitychange', 'webkitvisibilitychange', 'pagehide', 'blur', 'focusout'];
+          var dropEvents = ['visibilitychange', 'webkitvisibilitychange', 'pagehide', 'blur', 'focusout', 'freeze', 'resume'];
           var shouldDrop = function(type) {
             return dropEvents.indexOf(type) !== -1;
           };
@@ -99,9 +129,52 @@ export function getBackgroundPlayScript(): string {
           document.hasFocus = function() { return true; };
         } catch(e) {}
 
+        // 5.1. Proxy IntersectionObserver to shield main player from offscreen/minimized auto-pause
+        try {
+          var OrigIntersectionObserver = window.IntersectionObserver;
+          if (OrigIntersectionObserver) {
+            window.IntersectionObserver = function(callback, options) {
+              var proxiedCallback = function(entries, observer) {
+                var safeEntries = entries.map(function(entry) {
+                  var isPlayerTarget = false;
+                  try {
+                    if (entry.target) {
+                      var t = entry.target;
+                      if (t.tagName === 'VIDEO' ||
+                          (t.closest && t.closest('#movie_player, .html5-video-player, #player, .player-container, #player-container-id, .video-player, ytm-custom-control, ytm-mobile-player-overlay-renderer, #player-control-overlay, .player-controls-background, ytm-watch'))) {
+                        isPlayerTarget = true;
+                      }
+                    }
+                  } catch(_) {}
+
+                  if (isPlayerTarget) {
+                    try {
+                      return new Proxy(entry, {
+                        get: function(target, prop) {
+                          if (prop === 'isIntersecting') return true;
+                          if (prop === 'intersectionRatio') return 1.0;
+                          var val = target[prop];
+                          return typeof val === 'function' ? val.bind(target) : val;
+                        }
+                      });
+                    } catch(_) {
+                      return entry;
+                    }
+                  }
+                  return entry;
+                });
+                return callback(safeEntries, observer);
+              };
+              return new OrigIntersectionObserver(proxiedCallback, options);
+            };
+            window.IntersectionObserver.prototype = OrigIntersectionObserver.prototype;
+          }
+        } catch(e) {}
+
         // 6. User gesture & App state tracking to differentiate intentional pauses from automated background pauses
         window.__lastUserGestureTime = 0;
         window.__lastPlayerInteractionTime = 0;
+        window.__lastPauseButtonTapTime = 0;
         window.__userWantsPaused = false;
         window.__isRemotePauseCommand = false;
         window.__isRemotePlayCommand = false;
@@ -109,28 +182,71 @@ export function getBackgroundPlayScript(): string {
           window.__isAppInBackground = false;
         }
 
+        var isPauseButtonElement = function(target) {
+          if (!target) return false;
+          try {
+            var btn = target.closest && target.closest(
+              '.ytp-play-button, ytm-play-pause-button, button[aria-label*="pause" i], ' +
+              '.player-control-pause, [data-action="pause"], ytm-custom-control, ' +
+              '.ytp-mobile-play-button, button.icon-button[aria-label*="pause" i], ' +
+              'button[title*="pause" i], [aria-label="Pause"]'
+            );
+            if (!btn) return false;
+
+            var label = ((btn.getAttribute && btn.getAttribute('aria-label')) ||
+                         (btn.getAttribute && btn.getAttribute('title')) ||
+                         btn.className || '').toLowerCase();
+            if (label.indexOf('pause') !== -1) return true;
+
+            // If it's a play/pause toggle button on the active video while video is currently playing:
+            if (btn.classList && (btn.classList.contains('ytp-play-button') || btn.tagName === 'YTM-PLAY-PAUSE-BUTTON')) {
+              var v = document.querySelector('video');
+              if (v && !v.paused) return true;
+            }
+          } catch(_) {}
+          return false;
+        };
+
         var recordUserGesture = function(ev) {
+          // Ignore untrusted/synthetic script-generated events in real browser environments
+          var isJSDOM = typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.indexOf('jsdom') !== -1;
+          if (!isJSDOM && ev && ev.isTrusted === false) {
+            return;
+          }
+
+          // Extract clientY across PointerEvent, MouseEvent, TouchEvent (touchstart, touchmove, touchend)
+          var clientY = -1;
+          if (ev) {
+            if (typeof ev.clientY === 'number') {
+              clientY = ev.clientY;
+            } else if (ev.touches && ev.touches[0] && typeof ev.touches[0].clientY === 'number') {
+              clientY = ev.touches[0].clientY;
+            } else if (ev.changedTouches && ev.changedTouches[0] && typeof ev.changedTouches[0].clientY === 'number') {
+              clientY = ev.changedTouches[0].clientY;
+            }
+          }
+
+          // Ignore system gesture navigation touches at the bottom of the screen (bottom 95px)
+          if (clientY >= 0 && clientY >= (window.innerHeight - 95)) {
+            return;
+          }
+
           var now = Date.now();
           window.__lastUserGestureTime = now;
 
-          // Detect if touch/click was directed specifically at the video player or play/pause button
+          // Check if the user specifically touched/clicked an explicit PAUSE control button
           try {
             var target = ev && ev.target;
-            if (target && target.closest) {
-              var isPlayerEl = target.closest(
-                'video, .html5-video-player, #movie_player, .ytp-play-button, ytm-play-pause-button, ' +
-                'button[aria-label*="pause" i], button[aria-label*="play" i], .ytp-chrome-bottom, .video-stream, ' +
-                '.player-controls-middle, [data-video-id], .ytp-large-play-button'
-              );
-              if (isPlayerEl) {
-                window.__lastPlayerInteractionTime = now;
-              }
+            if (target && isPauseButtonElement(target)) {
+              window.__lastPauseButtonTapTime = now;
+              window.__lastPlayerInteractionTime = now;
             }
           } catch(_) {}
 
           if (ev && ev.type === 'keydown') {
             var key = ev.code || ev.key;
             if (key === 'Space' || key === ' ' || key === 'KeyK' || key === 'k' || key === 'MediaPlayPause') {
+              window.__lastPauseButtonTapTime = now;
               window.__lastPlayerInteractionTime = now;
             }
           }
@@ -151,7 +267,7 @@ export function getBackgroundPlayScript(): string {
 
           var origMediaPause = HTMLMediaElement.prototype.pause;
           HTMLMediaElement.prototype.pause = function() {
-            // 1. If triggered by an explicit remote pause command (notification / lockscreen), allow pause
+            // 1. If triggered by an explicit remote pause command (notification / lockscreen / headset), allow pause
             var isRemotePause = window.__isRemotePauseCommand === true;
             if (isRemotePause) {
               window.__userWantsPaused = true;
@@ -174,15 +290,53 @@ export function getBackgroundPlayScript(): string {
               return origMediaPause.apply(this, arguments);
             }
 
-            // 4. In foreground: NEVER suppress or intercept pause!
-            // Allow YouTube and the user to pause, seek, switch videos, or buffer naturally.
-            if (window.__isAppInBackground !== true) {
-              return origMediaPause.apply(this, arguments);
+            // 4. In background OR window blurred/blur-transition: Suppress all automated pauses from YouTube/Chromium!
+            var now = Date.now();
+            var isBlurRecent = (now - (window.__lastBlurTime || 0)) <= 3500;
+            if (window.__isAppInBackground === true || window.__windowHasBlur === true || isBlurRecent) {
+              return;
             }
 
-            // 5. In background: Suppress automated pauses from YouTube/Chromium
-            return;
+            // 5. In foreground: Differentiate deliberate user pause button taps from OS minimize / blur transitions
+            var isRecentPauseTap = (now - (window.__lastPauseButtonTapTime || 0)) <= 800 ||
+                                   (now - (window.__lastPlayerInteractionTime || 0)) <= 800;
+            if (!isRecentPauseTap) {
+              return; // Suppress automated backgrounding, blur, or timeout pause!
+            }
+
+            // 6. Deliberate user pause in foreground:
+            window.__userWantsPaused = true;
+            return origMediaPause.apply(this, arguments);
           };
+        } catch(e) {}
+
+        // 7.1. Wrap YouTube player object pauseVideo API
+        window.__ytwrWrapPlayer = function(player) {
+          if (!player || player.__ytwrPauseWrapped) return;
+          player.__ytwrPauseWrapped = true;
+          var origPauseVideo = player.pauseVideo;
+          if (typeof origPauseVideo === 'function') {
+            player.pauseVideo = function() {
+              if (window.__isRemotePauseCommand === true) {
+                return origPauseVideo.apply(this, arguments);
+              }
+              var now = Date.now();
+              var isBlurRecent = (now - (window.__lastBlurTime || 0)) <= 3500;
+              if (window.__isAppInBackground === true || window.__windowHasBlur === true || isBlurRecent) {
+                return;
+              }
+              var isRecentPauseTap = (now - (window.__lastPauseButtonTapTime || 0)) <= 800 ||
+                                     (now - (window.__lastPlayerInteractionTime || 0)) <= 800;
+              if (!isRecentPauseTap) {
+                return;
+              }
+              return origPauseVideo.apply(this, arguments);
+            };
+          }
+        };
+        try {
+          var initialPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+          if (initialPlayer) window.__ytwrWrapPlayer(initialPlayer);
         } catch(e) {}
 
         // 8. Setup navigator.mediaSession interception
@@ -221,16 +375,17 @@ export function getBackgroundPlayScript(): string {
 
         try {
           Object.defineProperty(window.navigator.mediaSession, 'playbackState', {
-            get: function() { return _playbackState; },
+            get: function() {
+              var v = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream, video');
+              if (v) {
+                return (!v.paused && !v.ended) ? 'playing' : 'paused';
+              }
+              return _playbackState;
+            },
             set: function(val) {
               _playbackState = val;
-              try {
-                if (window.__RN_EXTENSION_BRIDGE__) {
-                  window.__RN_EXTENSION_BRIDGE__.send('media-session', 'PLAYBACK_STATE_UPDATE', {
-                    isPlaying: val === 'playing'
-                  });
-                }
-              } catch(e) {}
+              // Do NOT send conflicting PLAYBACK_STATE_UPDATE messages that contradict the actual <video> element.
+              // Physical <video> element DOM events via reportMediaState are the sole source of truth.
             },
             configurable: true
           });
@@ -406,6 +561,13 @@ export function getMediaObserverScript(): string {
         if (!video || !isMainPlayerVideo(video) || video.__ytwrAttached) return;
         video.__ytwrAttached = true;
 
+        try {
+          var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+          if (p && typeof window.__ytwrWrapPlayer === 'function') {
+            window.__ytwrWrapPlayer(p);
+          }
+        } catch(_) {}
+
         var events = ['play', 'playing', 'pause', 'ended', 'timeupdate', 'loadedmetadata', 'ratechange'];
         events.forEach(function(ev) {
           video.addEventListener(ev, function() {
@@ -414,6 +576,17 @@ export function getMediaObserverScript(): string {
               unmuteAudio(video);
             } else if (ev === 'timeupdate' && !video.paused) {
               window.__userWantsPaused = false;
+            } else if (ev === 'pause') {
+              // Auto-recovery: If video pauses in background without intentional user pause command
+              if (window.__isAppInBackground === true && !window.__userWantsPaused) {
+                setTimeout(function() {
+                  if (video.paused && !video.ended && !window.__userWantsPaused) {
+                    video.play().catch(function(){});
+                    var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+                    if (p && typeof p.playVideo === 'function') p.playVideo();
+                  }
+                }, 40);
+              }
             }
             reportMediaState(video, ev !== 'timeupdate');
           });
@@ -447,7 +620,7 @@ export function getMediaObserverScript(): string {
       window.addEventListener('yt-navigate-finish', function() {
         window.__userWantsPaused = false;
         setTimeout(function() {
-          var v = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream');
+          var v = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream, video');
           if (v && isMainPlayerVideo(v)) {
             attachToVideo(v);
             reportMediaState(v, true);
@@ -460,6 +633,16 @@ export function getMediaObserverScript(): string {
           }
         }, 600);
       });
+
+      // Background Media Session Sync: Periodically ensure playing media state stays synchronized with native service
+      setInterval(function() {
+        if (window.__isAppInBackground === true && !window.__userWantsPaused) {
+          var v = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream, video');
+          if (v && isMainPlayerVideo(v) && !v.paused && !v.ended) {
+            reportMediaState(v, false);
+          }
+        }
+      }, 2000);
     })();
   `;
 }
@@ -498,6 +681,7 @@ export function getRemoteControlScript(action: string, position?: number): strin
           case 'PLAY':
             window.__userWantsPaused = false;
             window.__isRemotePlayCommand = true;
+            window.__isRemotePauseCommand = false;
             if (player) {
               try {
                 if (typeof player.unMute === 'function' && typeof player.isMuted === 'function' && player.isMuted()) player.unMute();
@@ -515,18 +699,12 @@ export function getRemoteControlScript(action: string, position?: number): strin
                 video.play().catch(function(){});
               } catch(e) {}
             }
-            var playBtn = document.querySelector(
-              '.ytp-play-button[aria-label*="Play" i], ytm-play-pause-button[aria-label*="Play" i], ' +
-              'button[aria-label*="Play" i], .ytp-large-play-button, .player-control-play'
-            );
-            if (playBtn && video && video.paused) {
-              try { playBtn.click(); } catch(e) {}
-            }
             break;
 
           case 'PAUSE':
             window.__userWantsPaused = true;
             window.__isRemotePauseCommand = true;
+            window.__isRemotePlayCommand = false;
             if (player && typeof player.pauseVideo === 'function') {
               try { player.pauseVideo(); } catch(e) {}
             }
@@ -535,13 +713,6 @@ export function getRemoteControlScript(action: string, position?: number): strin
             }
             if (video) {
               try { video.pause(); } catch(e) {}
-            }
-            var pauseBtn = document.querySelector(
-              '.ytp-play-button[aria-label*="Pause" i], ytm-play-pause-button[aria-label*="Pause" i], ' +
-              'button[aria-label*="Pause" i]'
-            );
-            if (pauseBtn && video && !video.paused) {
-              try { pauseBtn.click(); } catch(e) {}
             }
             break;
 

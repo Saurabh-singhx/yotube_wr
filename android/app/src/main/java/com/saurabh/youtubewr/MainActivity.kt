@@ -22,24 +22,43 @@ class MainActivity : ReactActivity() {
   companion object {
     var instance: WeakReference<MainActivity>? = null
 
-    fun executeRemoteMediaAction(action: String, position: Double? = null) {
-      val activity = instance?.get() ?: return
+    fun forceWebViewVisible(webView: WebView?) {
+      if (webView == null) return
+      try {
+        webView.dispatchWindowVisibilityChanged(View.VISIBLE)
+      } catch (_: Exception) {}
+      try {
+        val method = View::class.java.getDeclaredMethod("onWindowVisibilityChanged", Int::class.javaPrimitiveType)
+        method.isAccessible = true
+        method.invoke(webView, View.VISIBLE)
+      } catch (_: Exception) {}
+    }
+
+    fun executeRemoteMediaAction(action: String, position: Double? = null): Boolean {
+      val activity = instance?.get() ?: return false
+      val webView = findWebView(activity.window.decorView) ?: return false
       activity.runOnUiThread {
         try {
-          val webView = findWebView(activity.window.decorView)
-          if (webView != null) {
-            val pos = if (position != null && !position.isNaN()) position else 0.0
-            val script = buildRemoteControlScript(action, pos)
-            webView.resumeTimers()
-            webView.evaluateJavascript(script, null)
-          }
+          forceWebViewVisible(webView)
+          val pos = if (position != null && !position.isNaN()) position else 0.0
+          val script = buildRemoteControlScript(action, pos)
+          webView.resumeTimers()
+          webView.evaluateJavascript(script, null)
         } catch (_: Exception) {}
       }
+      return true
     }
 
     private fun findWebView(view: View?): WebView? {
       if (view == null) return null
-      if (view is WebView) return view
+      if (view is WebView) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          try {
+            view.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+          } catch (_: Exception) {}
+        }
+        return view
+      }
       if (view is ViewGroup) {
         for (i in 0 until view.childCount) {
           val found = findWebView(view.getChildAt(i))
@@ -82,6 +101,7 @@ class MainActivity : ReactActivity() {
               case 'PLAY':
                 window.__userWantsPaused = false;
                 window.__isRemotePlayCommand = true;
+                window.__isRemotePauseCommand = false;
                 if (player) {
                   try {
                     if (typeof player.unMute === 'function' && typeof player.isMuted === 'function' && player.isMuted()) player.unMute();
@@ -99,18 +119,12 @@ class MainActivity : ReactActivity() {
                     video.play().catch(function(){});
                   } catch(e) {}
                 }
-                var playBtn = document.querySelector(
-                  '.ytp-play-button[aria-label*="Play" i], ytm-play-pause-button[aria-label*="Play" i], ' +
-                  'button[aria-label*="Play" i], .ytp-large-play-button, .player-control-play'
-                );
-                if (playBtn && video && video.paused) {
-                  try { playBtn.click(); } catch(e) {}
-                }
                 break;
 
               case 'PAUSE':
                 window.__userWantsPaused = true;
                 window.__isRemotePauseCommand = true;
+                window.__isRemotePlayCommand = false;
                 if (player && typeof player.pauseVideo === 'function') {
                   try { player.pauseVideo(); } catch(e) {}
                 }
@@ -119,13 +133,6 @@ class MainActivity : ReactActivity() {
                 }
                 if (video) {
                   try { video.pause(); } catch(e) {}
-                }
-                var pauseBtn = document.querySelector(
-                  '.ytp-play-button[aria-label*="Pause" i], ytm-play-pause-button[aria-label*="Pause" i], ' +
-                  'button[aria-label*="Pause" i]'
-                );
-                if (pauseBtn && video && !video.paused) {
-                  try { pauseBtn.click(); } catch(e) {}
                 }
                 break;
 
@@ -273,13 +280,69 @@ class MainActivity : ReactActivity() {
       }
   }
 
+  /**
+   * Called by Android OS the moment the user initiates leaving the activity
+   * (e.g. presses Home key or swipes Home gesture) BEFORE onPause().
+   * Provides the earliest possible signal to lock background playback.
+   */
+  override fun onUserLeaveHint() {
+      super.onUserLeaveHint()
+      try {
+          val webView = findWebView(window.decorView)
+          forceWebViewVisible(webView)
+          webView?.resumeTimers()
+          webView?.evaluateJavascript(
+              "(function(){ window.__isAppInBackground = true; window.__windowHasBlur = true; window.__lastBlurTime = Date.now(); window.__lastUserGestureTime = 0; window.__lastPlayerInteractionTime = 0; window.__lastPauseButtonTapTime = 0; var v = document.querySelector('video'); var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player'); if (v && !window.__userWantsPaused) { v.play().catch(function(){}); if (p && typeof p.playVideo === 'function') p.playVideo(); } })(); true;",
+              null
+          )
+      } catch (_: Exception) {}
+  }
+
+  /**
+   * Called when window focus changes (e.g. notification shade pulled down, dialog opened, or app minimized).
+   */
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+      super.onWindowFocusChanged(hasFocus)
+      try {
+          val webView = findWebView(window.decorView)
+          if (!hasFocus) {
+              forceWebViewVisible(webView)
+              webView?.resumeTimers()
+              webView?.evaluateJavascript(
+                  "(function(){ window.__isAppInBackground = true; window.__windowHasBlur = true; window.__lastBlurTime = Date.now(); window.__lastUserGestureTime = 0; window.__lastPlayerInteractionTime = 0; window.__lastPauseButtonTapTime = 0; var v = document.querySelector('video'); var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player'); if (v && !window.__userWantsPaused) { v.play().catch(function(){}); if (p && typeof p.playVideo === 'function') p.playVideo(); } })(); true;",
+                  null
+              )
+          } else {
+              webView?.resumeTimers()
+              webView?.evaluateJavascript(
+                  "(function(){ window.__isAppInBackground = false; window.__windowHasBlur = false; window.__lastBlurTime = 0; window.__lastUserGestureTime = 0; window.__lastPlayerInteractionTime = 0; window.__lastPauseButtonTapTime = 0; })(); true;",
+                  null
+              )
+          }
+      } catch (_: Exception) {}
+  }
+
   override fun onPause() {
       super.onPause()
       try {
           val webView = findWebView(window.decorView)
+          forceWebViewVisible(webView)
           webView?.resumeTimers()
           webView?.evaluateJavascript(
-              "(function(){ window.__isAppInBackground = true; })(); true;",
+              "(function(){ window.__isAppInBackground = true; window.__windowHasBlur = true; window.__lastBlurTime = Date.now(); window.__lastUserGestureTime = 0; window.__lastPlayerInteractionTime = 0; window.__lastPauseButtonTapTime = 0; var v = document.querySelector('video'); var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player'); if (v && !window.__userWantsPaused) { v.play().catch(function(){}); if (p && typeof p.playVideo === 'function') p.playVideo(); } })(); true;",
+              null
+          )
+      } catch (_: Exception) {}
+  }
+
+  override fun onStop() {
+      super.onStop()
+      try {
+          val webView = findWebView(window.decorView)
+          forceWebViewVisible(webView)
+          webView?.resumeTimers()
+          webView?.evaluateJavascript(
+              "(function(){ window.__isAppInBackground = true; window.__windowHasBlur = true; window.__lastBlurTime = Date.now(); window.__lastPauseButtonTapTime = 0; var v = document.querySelector('video'); var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player'); if (v && !window.__userWantsPaused) { v.play().catch(function(){}); if (p && typeof p.playVideo === 'function') p.playVideo(); } })(); true;",
               null
           )
       } catch (_: Exception) {}
@@ -289,8 +352,9 @@ class MainActivity : ReactActivity() {
       super.onResume()
       try {
           val webView = findWebView(window.decorView)
+          webView?.resumeTimers()
           webView?.evaluateJavascript(
-              "(function(){ window.__isAppInBackground = false; window.__userWantsPaused = false; })(); true;",
+              "(function(){ window.__isAppInBackground = false; window.__windowHasBlur = false; window.__lastBlurTime = 0; window.__lastUserGestureTime = 0; window.__lastPlayerInteractionTime = 0; window.__lastPauseButtonTapTime = 0; })(); true;",
               null
           )
       } catch (_: Exception) {}

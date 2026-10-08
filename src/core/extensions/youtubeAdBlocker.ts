@@ -522,6 +522,12 @@ export const youtubeAdBlocker: ExtensionManifest = {
         var freezeStallCount = 0;
 
         function unfreezeWatchdog() {
+          // In background: NEVER force playback, nudge timers, or kick players
+          if (window.__isAppInBackground === true) {
+            freezeStallCount = 0;
+            return;
+          }
+
           var v = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream');
           if (!v) v = document.querySelector('video');
           if (!v || checkIsAd(v) || window.__userWantsPaused) {
@@ -533,8 +539,8 @@ export const youtubeAdBlocker: ExtensionManifest = {
             return;
           }
 
-          // Case A: Main video was left in a paused/interrupted state right after ad transition
-          if (v.paused && !v.ended && v.readyState >= 1) {
+          // Case A: Main video was left in a paused/interrupted state specifically during/right after an ad transition
+          if (wasAdActive && v.paused && !v.ended && v.readyState >= 1) {
             freezeStallCount++;
             if (freezeStallCount >= 3) { // ~900ms of unexpected pause
               freezeStallCount = 0;

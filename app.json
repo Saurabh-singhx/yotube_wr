@@ -2,7 +2,7 @@
   "expo": {
     "name": "YouTube_wr",
     "slug": "YouTube_wr",
-    "version": "1.5.6",
+    "version": "1.6.5",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -11,7 +11,7 @@
     },
     "android": {
       "package": "com.saurabh.youtubewr",
-      "versionCode": 27,
+      "versionCode": 33,
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",

@@ -47,7 +47,7 @@ class MediaPlaybackService : Service() {
         const val ACTION_UPDATE = "com.saurabh.youtubewr.ACTION_UPDATE"
 
         var instance: MediaPlaybackService? = null
-        var onMediaAction: ((action: String, position: Double?) -> Unit)? = null
+        var onMediaAction: ((action: String, position: Double?, scriptHandled: Boolean) -> Unit)? = null
 
         var currentTitle = ""
         var currentArtist = ""
@@ -65,6 +65,12 @@ class MediaPlaybackService : Service() {
     private var currentBitmap: Bitmap? = null
     private var lastLoadedThumbnailUrl = ""
 
+    private var isForegroundActive = false
+    private var lastNotifiedPlaying: Boolean? = null
+    private var lastNotifiedTitle: String = ""
+    private var lastNotifiedArtist: String = ""
+    private var lastNotifiedBitmap: Bitmap? = null
+
     private var isNoisyReceiverRegistered = false
 
     private val noisyReceiver = object : BroadcastReceiver() {
@@ -74,8 +80,8 @@ class MediaPlaybackService : Service() {
                     isPlaying = false
                     updatePlaybackState()
                     updateNotification()
-                    MainActivity.executeRemoteMediaAction("PAUSE")
-                    onMediaAction?.invoke("PAUSE", null)
+                    val handled = MainActivity.executeRemoteMediaAction("PAUSE")
+                    onMediaAction?.invoke("PAUSE", null, handled)
                 }
             }
         }
@@ -136,55 +142,55 @@ class MediaPlaybackService : Service() {
                     isPlaying = true
                     updatePlaybackState()
                     updateNotification()
-                    MainActivity.executeRemoteMediaAction("PLAY")
-                    onMediaAction?.invoke("PLAY", null)
+                    val handled = MainActivity.executeRemoteMediaAction("PLAY")
+                    onMediaAction?.invoke("PLAY", null, handled)
                 }
 
                 override fun onPause() {
                     isPlaying = false
                     updatePlaybackState()
                     updateNotification()
-                    MainActivity.executeRemoteMediaAction("PAUSE")
-                    onMediaAction?.invoke("PAUSE", null)
+                    val handled = MainActivity.executeRemoteMediaAction("PAUSE")
+                    onMediaAction?.invoke("PAUSE", null, handled)
                 }
 
                 override fun onFastForward() {
                     currentPosition = (currentPosition + 10.0).coerceAtMost(currentDuration)
                     updatePlaybackState()
-                    MainActivity.executeRemoteMediaAction("FAST_FORWARD")
-                    onMediaAction?.invoke("FAST_FORWARD", null)
+                    val handled = MainActivity.executeRemoteMediaAction("FAST_FORWARD")
+                    onMediaAction?.invoke("FAST_FORWARD", null, handled)
                 }
 
                 override fun onRewind() {
                     currentPosition = (currentPosition - 10.0).coerceAtLeast(0.0)
                     updatePlaybackState()
-                    MainActivity.executeRemoteMediaAction("REWIND")
-                    onMediaAction?.invoke("REWIND", null)
+                    val handled = MainActivity.executeRemoteMediaAction("REWIND")
+                    onMediaAction?.invoke("REWIND", null, handled)
                 }
 
                 override fun onSkipToNext() {
-                    MainActivity.executeRemoteMediaAction("SKIP_NEXT")
-                    onMediaAction?.invoke("SKIP_NEXT", null)
+                    val handled = MainActivity.executeRemoteMediaAction("SKIP_NEXT")
+                    onMediaAction?.invoke("SKIP_NEXT", null, handled)
                 }
 
                 override fun onSkipToPrevious() {
-                    MainActivity.executeRemoteMediaAction("SKIP_PREV")
-                    onMediaAction?.invoke("SKIP_PREV", null)
+                    val handled = MainActivity.executeRemoteMediaAction("SKIP_PREV")
+                    onMediaAction?.invoke("SKIP_PREV", null, handled)
                 }
 
                 override fun onSeekTo(pos: Long) {
                     val posSeconds = pos / 1000.0
                     currentPosition = posSeconds
                     updatePlaybackState()
-                    MainActivity.executeRemoteMediaAction("SEEK_TO", posSeconds)
-                    onMediaAction?.invoke("SEEK_TO", posSeconds)
+                    val handled = MainActivity.executeRemoteMediaAction("SEEK_TO", posSeconds)
+                    onMediaAction?.invoke("SEEK_TO", posSeconds, handled)
                 }
 
                 override fun onStop() {
                     isPlaying = false
                     updatePlaybackState()
-                    MainActivity.executeRemoteMediaAction("STOP")
-                    onMediaAction?.invoke("STOP", null)
+                    val handled = MainActivity.executeRemoteMediaAction("STOP")
+                    onMediaAction?.invoke("STOP", null, handled)
                     stopServiceSafely()
                 }
             })
@@ -276,8 +282,10 @@ class MediaPlaybackService : Service() {
             android.R.drawable.ic_media_rew, "Rewind 10s", rewPendingIntent
         ).build()
 
-        // 2. Play/Pause Action
-        val playPauseIntent = Intent(this, MediaPlaybackService::class.java).apply { action = ACTION_TOGGLE_PLAY }
+        // 2. Play/Pause Action: Explicit action based on current state (never toggle ambiguity)
+        val playPauseIntent = Intent(this, MediaPlaybackService::class.java).apply {
+            action = if (isPlaying) ACTION_PAUSE else ACTION_PLAY
+        }
         val playPausePendingIntent = PendingIntent.getService(
             this, 2, playPauseIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -345,10 +353,42 @@ class MediaPlaybackService : Service() {
         return builder.build()
     }
 
-    fun updateNotification() {
+    fun updateNotification(force: Boolean = false) {
+        val playingChanged = lastNotifiedPlaying != isPlaying
+        val titleChanged = lastNotifiedTitle != currentTitle
+        val artistChanged = lastNotifiedArtist != currentArtist
+        val bitmapChanged = lastNotifiedBitmap != currentBitmap
+
+        if (!force && isForegroundActive && !playingChanged && !titleChanged && !artistChanged && !bitmapChanged) {
+            return
+        }
+
+        lastNotifiedPlaying = isPlaying
+        lastNotifiedTitle = currentTitle
+        lastNotifiedArtist = currentArtist
+        lastNotifiedBitmap = currentBitmap
+
         val notification = buildNotification()
-        val nm = getSystemService(NotificationManager::class.java)
-        nm?.notify(NOTIFICATION_ID, notification)
+        if (!isForegroundActive) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    )
+                } else {
+                    startForeground(NOTIFICATION_ID, notification)
+                }
+                isForegroundActive = true
+            } catch (e: Exception) {
+                val nm = getSystemService(NotificationManager::class.java)
+                nm?.notify(NOTIFICATION_ID, notification)
+            }
+        } else {
+            val nm = getSystemService(NotificationManager::class.java)
+            nm?.notify(NOTIFICATION_ID, notification)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -356,71 +396,60 @@ class MediaPlaybackService : Service() {
             ACTION_PLAY -> {
                 isPlaying = true
                 updatePlaybackState()
-                updateNotification()
-                MainActivity.executeRemoteMediaAction("PLAY")
-                onMediaAction?.invoke("PLAY", null)
+                updateNotification(force = true)
+                val handled = MainActivity.executeRemoteMediaAction("PLAY")
+                onMediaAction?.invoke("PLAY", null, handled)
             }
             ACTION_PAUSE -> {
                 isPlaying = false
                 updatePlaybackState()
-                updateNotification()
-                MainActivity.executeRemoteMediaAction("PAUSE")
-                onMediaAction?.invoke("PAUSE", null)
+                updateNotification(force = true)
+                val handled = MainActivity.executeRemoteMediaAction("PAUSE")
+                onMediaAction?.invoke("PAUSE", null, handled)
             }
             ACTION_TOGGLE_PLAY -> {
                 isPlaying = !isPlaying
                 val action = if (isPlaying) "PLAY" else "PAUSE"
                 updatePlaybackState()
-                updateNotification()
-                MainActivity.executeRemoteMediaAction(action)
-                onMediaAction?.invoke(action, null)
+                updateNotification(force = true)
+                val handled = MainActivity.executeRemoteMediaAction(action)
+                onMediaAction?.invoke(action, null, handled)
             }
             ACTION_REWIND -> {
                 currentPosition = (currentPosition - 10.0).coerceAtLeast(0.0)
                 updatePlaybackState()
-                updateNotification()
-                MainActivity.executeRemoteMediaAction("REWIND")
-                onMediaAction?.invoke("REWIND", null)
+                val handled = MainActivity.executeRemoteMediaAction("REWIND")
+                onMediaAction?.invoke("REWIND", null, handled)
             }
             ACTION_FAST_FORWARD -> {
                 currentPosition = (currentPosition + 10.0).coerceAtMost(currentDuration)
                 updatePlaybackState()
-                updateNotification()
-                MainActivity.executeRemoteMediaAction("FAST_FORWARD")
-                onMediaAction?.invoke("FAST_FORWARD", null)
+                val handled = MainActivity.executeRemoteMediaAction("FAST_FORWARD")
+                onMediaAction?.invoke("FAST_FORWARD", null, handled)
             }
             ACTION_SKIP_NEXT -> {
-                MainActivity.executeRemoteMediaAction("SKIP_NEXT")
-                onMediaAction?.invoke("SKIP_NEXT", null)
+                val handled = MainActivity.executeRemoteMediaAction("SKIP_NEXT")
+                onMediaAction?.invoke("SKIP_NEXT", null, handled)
             }
             ACTION_SKIP_PREV -> {
-                MainActivity.executeRemoteMediaAction("SKIP_PREV")
-                onMediaAction?.invoke("SKIP_PREV", null)
+                val handled = MainActivity.executeRemoteMediaAction("SKIP_PREV")
+                onMediaAction?.invoke("SKIP_PREV", null, handled)
             }
             ACTION_STOP -> {
-                MainActivity.executeRemoteMediaAction("STOP")
+                val handled = MainActivity.executeRemoteMediaAction("STOP")
+                onMediaAction?.invoke("STOP", null, handled)
                 stopServiceSafely()
                 return START_NOT_STICKY
             }
             ACTION_UPDATE -> {
                 updatePlaybackState()
+                updateNotification(force = false)
                 fetchArtworkIfNeeded()
             }
         }
 
-        val notification = buildNotification()
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-        } catch (e: Exception) {
-            // Handle edge case Android foreground restrictions
+        if (!isForegroundActive) {
+            updateNotification(force = true)
         }
 
         return START_NOT_STICKY
@@ -443,7 +472,7 @@ class MediaPlaybackService : Service() {
                     withContext(Dispatchers.Main) {
                         currentBitmap = bitmap
                         updatePlaybackState()
-                        updateNotification()
+                        updateNotification(force = true)
                     }
                 } catch (_: Exception) {}
             }
@@ -452,6 +481,11 @@ class MediaPlaybackService : Service() {
 
     private fun stopServiceSafely() {
         try {
+            isForegroundActive = false
+            lastNotifiedPlaying = null
+            lastNotifiedTitle = ""
+            lastNotifiedArtist = ""
+            lastNotifiedBitmap = null
             if (isNoisyReceiverRegistered) {
                 try {
                     unregisterReceiver(noisyReceiver)

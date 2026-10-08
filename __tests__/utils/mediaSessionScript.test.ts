@@ -20,13 +20,21 @@ describe('mediaSessionScript', () => {
       expect(script).toContain('webkitVisibilityState');
     });
 
-    it('intercepts and suppresses visibilitychange and pagehide listeners', () => {
+    it('intercepts and suppresses visibilitychange, pagehide, and freeze listeners', () => {
       const script = getBackgroundPlayScript();
       expect(script).toContain('visibilitychange');
       expect(script).toContain('webkitvisibilitychange');
       expect(script).toContain('pagehide');
+      expect(script).toContain('freeze');
       expect(script).toContain('EventTarget');
       expect(script).toContain('swallowEvent');
+    });
+
+    it('proxies IntersectionObserver to shield main player from offscreen auto-pause', () => {
+      const script = getBackgroundPlayScript();
+      expect(script).toContain('window.IntersectionObserver');
+      expect(script).toContain('isIntersecting');
+      expect(script).toContain('intersectionRatio');
     });
 
     it('tracks user gestures and intercepts HTMLMediaElement pause to prevent automated background pause', () => {
@@ -44,7 +52,6 @@ describe('mediaSessionScript', () => {
       expect(script).toContain('window.navigator.mediaSession');
       expect(script).toContain('window.__ytwrMediaActions');
       expect(script).toContain('METADATA_UPDATE');
-      expect(script).toContain('PLAYBACK_STATE_UPDATE');
       expect(script).toContain('POSITION_UPDATE');
     });
   });
@@ -57,6 +64,7 @@ describe('mediaSessionScript', () => {
       expect(script).toContain('MutationObserver');
       expect(script).toContain('MEDIA_STATE_UPDATE');
       expect(script).toContain('window.__userWantsPaused');
+      expect(script).toContain('setInterval');
     });
 
     it('extracts metadata using mobile YouTube DOM selectors and video ID', () => {
@@ -205,8 +213,11 @@ describe('mediaSessionScript', () => {
       expect(mockDocument.visibilityState).toBe('visible');
     });
 
-    it('allows video to pause and play naturally in foreground', () => {
+    it('allows video to pause and play naturally in foreground when user touched player', () => {
       mockWindow.__isAppInBackground = false;
+      mockWindow.__windowHasBlur = false;
+      mockWindow.__lastBlurTime = 0;
+      mockWindow.__lastPlayerInteractionTime = Date.now();
       isPaused = false;
 
       const video = mockDocument.querySelector('video');
@@ -260,9 +271,14 @@ describe('mediaSessionScript', () => {
       expect(seekToTime).toBe(50);
     });
 
-    it('allows direct player pause in foreground', () => {
+    it('allows direct player pause in foreground after user tap on play/pause button', () => {
       mockWindow.__isAppInBackground = false;
+      mockWindow.__windowHasBlur = false;
+      mockWindow.__lastBlurTime = 0;
       isPaused = false;
+
+      const playBtn = mockDocument.querySelector('.ytp-play-button');
+      playBtn.dispatchEvent(new mockWindow.MouseEvent('click', { bubbles: true }));
 
       const video = mockDocument.querySelector('video');
       video.pause();
@@ -327,6 +343,128 @@ describe('mediaSessionScript', () => {
       Object.defineProperty(video, 'ended', { get: () => true, configurable: true });
       video.pause();
       expect(isPaused).toBe(true);
+    });
+
+    it('suppresses pause in foreground when no user touch occurred (minimize / blur race condition)', () => {
+      isPaused = false;
+      mockWindow.__isAppInBackground = false;
+      // Stale touch timestamp (> 1200ms ago)
+      mockWindow.__lastUserGestureTime = Date.now() - 5000;
+
+      const video = mockDocument.querySelector('video');
+      video.pause();
+      expect(isPaused).toBe(false);
+    });
+
+    it('shields main player elements via IntersectionObserver proxy', () => {
+      const { JSDOM } = require('jsdom');
+      const dom = new JSDOM(
+        `<!DOCTYPE html><html><body><div id="movie_player"><video></video></div></body></html>`,
+        { runScripts: 'dangerously', url: 'https://m.youtube.com' }
+      );
+      let capturedEntries: any[] = [];
+      dom.window.IntersectionObserver = class MockIntersectionObserver {
+        private cb: any;
+        constructor(callback: any) {
+          this.cb = callback;
+        }
+        observe(target: any) {
+          this.cb([{ target, isIntersecting: false, intersectionRatio: 0 }]);
+        }
+        unobserve() {}
+        disconnect() {}
+      };
+
+      dom.window.eval(getBackgroundPlayScript());
+
+      const observer = new dom.window.IntersectionObserver((entries: any[]) => {
+        capturedEntries = entries;
+      });
+      const video = dom.window.document.querySelector('video');
+      observer.observe(video);
+
+      expect(capturedEntries.length).toBe(1);
+      expect(capturedEntries[0].isIntersecting).toBe(true);
+      expect(capturedEntries[0].intersectionRatio).toBe(1.0);
+    });
+
+    it('suppresses pause on window blur or minimize transition even in foreground', () => {
+      isPaused = false;
+      mockWindow.__isAppInBackground = false;
+      mockWindow.__windowHasBlur = true;
+      mockWindow.__lastBlurTime = Date.now();
+      mockWindow.__lastPlayerInteractionTime = 0;
+
+      const video = mockDocument.querySelector('video');
+      video.pause();
+      expect(isPaused).toBe(false);
+    });
+
+    it('does not authorize pause when user touches recommendation items or non-pause elements', () => {
+      isPaused = false;
+      mockWindow.__isAppInBackground = false;
+      mockWindow.__windowHasBlur = false;
+      mockWindow.__lastBlurTime = 0;
+      mockWindow.__lastPauseButtonTapTime = 0;
+      mockWindow.__lastPlayerInteractionTime = 0;
+
+      // Create a recommendation video item
+      const recItem = mockDocument.createElement('div');
+      recItem.className = 'ytm-media-item';
+      recItem.innerHTML = '<a href="/watch?v=rec123">Recommendation</a>';
+      mockDocument.body.appendChild(recItem);
+
+      // Simulate touch on recommendation item
+      recItem.dispatchEvent(new mockWindow.MouseEvent('click', { bubbles: true }));
+
+      // __lastPauseButtonTapTime should NOT be set by a recommendation item
+      expect(mockWindow.__lastPauseButtonTapTime).toBe(0);
+
+      // Video pause should be suppressed!
+      const video = mockDocument.querySelector('video');
+      video.pause();
+      expect(isPaused).toBe(false);
+    });
+
+    it('remote control PLAY command does not click toggle buttons and safely resumes playback', () => {
+      isPaused = true;
+      mockWindow.__isAppInBackground = true;
+      mockWindow.__userWantsPaused = true;
+
+      const playBtn = mockDocument.querySelector('.ytp-play-button');
+      let playBtnClicked = false;
+      playBtn.addEventListener('click', () => {
+        playBtnClicked = true;
+      });
+
+      mockWindow.eval(getRemoteControlScript('PLAY'));
+
+      // Video must resume via API, without synthetic click on toggle button
+      expect(isPaused).toBe(false);
+      expect(mockWindow.__userWantsPaused).toBe(false);
+      expect(playBtnClicked).toBe(false);
+    });
+
+    it('suppresses pause on second minimize after reopening without pause button interaction', () => {
+      // 1. App reopened into foreground
+      mockWindow.__isAppInBackground = false;
+      mockWindow.__windowHasBlur = false;
+      mockWindow.__lastBlurTime = 0;
+      mockWindow.__lastPauseButtonTapTime = 0;
+      mockWindow.__lastPlayerInteractionTime = 0;
+      mockWindow.__userWantsPaused = false;
+      isPaused = false;
+
+      // 2. Second minimize: user swipes home without tapping pause
+      mockWindow.__isAppInBackground = true;
+      mockWindow.__windowHasBlur = true;
+      mockWindow.__lastBlurTime = Date.now();
+
+      const video = mockDocument.querySelector('video');
+      video.pause();
+
+      // Video must NOT pause!
+      expect(isPaused).toBe(false);
     });
   });
 });
