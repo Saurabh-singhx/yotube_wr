@@ -41,7 +41,7 @@ export const youtubeAdBlocker: ExtensionManifest = {
   },
 
   // Injected CSS for cosmetic filtering
-  // CAUTION: Never hide .video-ads, .ytp-ad-module, [id^="ad_"], or .ad-container!
+  // CAUTION: Never hide .video-ads, #movie_player, or .html5-video-player itself!
   // Doing so hides the actual video player surface, rendering a pitch black box!
   injectedCSS: (settings) => {
     if (settings.blockBanners === false) return '';
@@ -66,6 +66,29 @@ export const youtubeAdBlocker: ExtensionManifest = {
       ytd-rich-item-renderer:has(ytd-ad-slot-renderer),
       ytd-rich-item-renderer:has(ytd-in-feed-ad-layout-renderer),
       ytm-item-section-renderer[section-identifier="comment-item-section"] + ytm-promoted-sparkles-web-renderer,
+      /* YouTube Player Ad Overlays (Eliminates skip buttons, countdown timers, and ad badges from visually flashing) */
+      .ytp-ad-player-overlay,
+      .ytp-ad-player-overlay-layout,
+      .ytp-ad-player-overlay-skip-or-preview,
+      .ytp-ad-skip-button-slot,
+      .ytp-ad-skip-button-container,
+      .ytp-ad-skip-button,
+      .ytp-ad-skip-button-modern,
+      .ytp-skip-ad-button,
+      .ytp-ad-duration-remaining,
+      .ytp-ad-badge,
+      .ytp-ad-badge-modern,
+      .ytp-ad-text,
+      .ytp-ad-preview-container,
+      .ytp-ad-preview-text,
+      .ytm-ad-skip-button,
+      .ytm-ad-preview-renderer,
+      .ytp-ad-action-interstitial,
+      .ytp-ad-image-overlay,
+      .ytp-ad-overlay-container,
+      [class*="ytp-ad-skip-button"],
+      [class*="ytp-ad-preview"],
+      [class*="ytp-ad-overlay"],
       /* YouTube Mobile "Open App" / App Banner Popups, Mealbars & Duplicate Bottom Pivot Bar */
       ytm-pivot-bar-renderer,
       .pivot-bar,
@@ -97,21 +120,83 @@ export const youtubeAdBlocker: ExtensionManifest = {
   },
 
   // Document Start: Strip ad configurations at the data level before YouTube player schedules them
+  // Uses property deletion / undefined (never sets empty array [] which crashes YouTube player validation)
   injectedJSStart: () => {
     return `
       (function() {
         if (window.__AD_INTERCEPT_LOADED__) return;
         window.__AD_INTERCEPT_LOADED__ = true;
 
-        // Ensure clean window state without monkey-patching native fetch or JSON.parse
-        // (tampering with fetch/JSON.parse triggers YouTube player validation errors and auto-pause)
+        function pruneAdData(data) {
+          if (!data || typeof data !== 'object') return data;
+          try {
+            // 1. Root-level ad schedule properties
+            // IMPORTANT: Delete the property completely so YouTube player treats the stream as unmonetized/premium.
+            // NEVER set to [] (empty array) - doing so causes player schema validation failure and auto-pause!
+            if ('adPlacements' in data) delete data.adPlacements;
+            if ('playerAds' in data) delete data.playerAds;
+            if ('adSlots' in data) delete data.adSlots;
+            if ('adBreakHeartbeatParams' in data) delete data.adBreakHeartbeatParams;
+
+            // 2. Nested playerResponse structures (common in initial responses and SPA payloads)
+            if (data.playerResponse && typeof data.playerResponse === 'object') {
+              pruneAdData(data.playerResponse);
+            }
+          } catch(e) {}
+          return data;
+        }
+
+        // 1. Intercept window.ytInitialPlayerResponse
         try {
           var _initialResp = window.ytInitialPlayerResponse;
+          if (_initialResp) {
+            pruneAdData(_initialResp);
+          }
           Object.defineProperty(window, 'ytInitialPlayerResponse', {
             get: function() { return _initialResp; },
-            set: function(val) { _initialResp = val; },
-            configurable: true
+            set: function(val) { _initialResp = pruneAdData(val); },
+            configurable: true,
+            enumerable: true
           });
+        } catch(e) {}
+
+        // 2. Intercept Response.prototype.json (safely modifies deserialized JSON without breaking network streams or gzip/brotli decoding)
+        try {
+          if (typeof Response !== 'undefined' && Response.prototype && Response.prototype.json) {
+            var origJson = Response.prototype.json;
+            Response.prototype.json = function() {
+              return origJson.apply(this, arguments).then(function(result) {
+                if (result && typeof result === 'object') {
+                  if (result.adPlacements || result.playerAds || result.adSlots ||
+                      (result.playerResponse && (result.playerResponse.adPlacements || result.playerResponse.adSlots))) {
+                    pruneAdData(result);
+                    if (window.__RN_EXTENSION_BRIDGE__) {
+                      window.__RN_EXTENSION_BRIDGE__.send('youtube-adblocker', 'AD_BLOCKED', { source: 'data_prune' });
+                    }
+                  }
+                }
+                return result;
+              });
+            };
+          }
+        } catch(e) {}
+
+        // 3. Intercept JSON.parse for YouTube player configs
+        try {
+          var origJSONParse = JSON.parse;
+          JSON.parse = function(text, reviver) {
+            var res = origJSONParse.apply(this, arguments);
+            if (res && typeof res === 'object') {
+              if (res.adPlacements || res.playerAds || res.adSlots ||
+                  (res.playerResponse && (res.playerResponse.adPlacements || res.playerResponse.adSlots))) {
+                pruneAdData(res);
+                if (window.__RN_EXTENSION_BRIDGE__) {
+                  window.__RN_EXTENSION_BRIDGE__.send('youtube-adblocker', 'AD_BLOCKED', { source: 'json_prune' });
+                }
+              }
+            }
+            return res;
+          };
         } catch(e) {}
       })();
     `;
@@ -136,6 +221,7 @@ export const youtubeAdBlocker: ExtensionManifest = {
         var lastReportTime = 0;
         var lastRunTime = 0;
         var isPlayingAd = false;
+        var adExitDebounceTimer = null;
 
         function isVisible(el) {
           if (!el) return false;
@@ -161,31 +247,35 @@ export const youtubeAdBlocker: ExtensionManifest = {
         function checkIsAd(video, player) {
           if (!player) player = findPlayer(video);
 
-          // 1. YouTube player class indicators strictly on player container
           if (player) {
-            var cls = player.className || '';
-            if (cls.indexOf('ad-showing') !== -1 || cls.indexOf('ad-interrupting') !== -1) {
-              return true;
-            }
+            // 1. Native player API check: definitive authority when available
+            try {
+              if (typeof player.isAdShowing === 'function') {
+                var isShowing = player.isAdShowing();
+                if (!isShowing) return false;
+                return true;
+              }
+              if (typeof player.getAdState === 'function') {
+                var adState = player.getAdState();
+                if (adState === 0) return false;
+                if (adState > 0) return true;
+              }
+            } catch(e) {}
 
-            // Visible ad overlays strictly inside player
+            // 2. Visible ad overlays strictly inside player
             var adOverlay = player.querySelector('.ytp-ad-player-overlay, .ytp-ad-badge, .ytp-ad-duration-remaining');
             if (adOverlay && isVisible(adOverlay)) {
               return true;
             }
 
-            // Native player API checks
-            try {
-              if (typeof player.isAdShowing === 'function' && player.isAdShowing()) {
-                return true;
-              }
-              if (typeof player.getAdState === 'function' && player.getAdState() > 0) {
-                return true;
-              }
-            } catch(e) {}
+            // 3. Player container class indicators (fallback for initial DOM mount)
+            var cls = player.className || '';
+            if (cls.indexOf('ad-showing') !== -1 || cls.indexOf('ad-interrupting') !== -1) {
+              return true;
+            }
           }
 
-          // 2. Video src query parameter indicators (distinct ad streams)
+          // 4. Video src query parameter indicators (distinct ad streams)
           if (video && video.src && (video.src.indexOf('adformat=') !== -1 || video.src.indexOf('&ctier=') !== -1)) {
             return true;
           }
@@ -212,7 +302,7 @@ export const youtubeAdBlocker: ExtensionManifest = {
             var skipButtons = document.querySelectorAll(skipSelectors[s]);
             for (var i = 0; i < skipButtons.length; i++) {
               var btn = skipButtons[i];
-              if (isVisible(btn)) {
+              if (btn) {
                 try {
                   btn.click();
                 } catch(e) {}
@@ -260,6 +350,12 @@ export const youtubeAdBlocker: ExtensionManifest = {
             var isAd = checkIsAd(video, player);
 
             if (isAd) {
+              // Cancel any pending exit transition debounce immediately
+              if (adExitDebounceTimer) {
+                clearTimeout(adExitDebounceTimer);
+                adExitDebounceTimer = null;
+              }
+
               if (!wasAdActive) {
                 wasAdActive = true;
                 hasJumpedThisAd = false;
@@ -275,7 +371,7 @@ export const youtubeAdBlocker: ExtensionManifest = {
                 hasJumpedThisAd = false;
               }
 
-              // Mute ad audio only if not already muted
+              // Mute ad audio instantly
               if (${muteAd}) {
                 if (!video.muted) video.muted = true;
                 if (video.volume !== 0) video.volume = 0;
@@ -291,19 +387,20 @@ export const youtubeAdBlocker: ExtensionManifest = {
                 } catch(e) {}
               }
 
-              // Fast-forward safely (avoid calling setter continuously to prevent decoder stalling)
-              if (video.playbackRate !== 10.0 && video.readyState >= 1) {
-                video.playbackRate = 10.0;
+              // Fast-forward at max safe rate (16x)
+              if (video.playbackRate !== 16.0 && video.readyState >= 1) {
+                video.playbackRate = 16.0;
               }
 
-              // Jump to near end of the ad video ONCE per ad (leave 0.2s margin to prevent decoder EOS freeze)
-              if (!hasJumpedThisAd && video.readyState >= 2 && isFinite(video.duration) && video.duration > 0 && video.duration < 180) {
+              // Jump to end of ad video immediately without waiting for readyState >= 2
+              // (eliminates 1-3s mobile buffering delay where ad was forced to play)
+              if (!hasJumpedThisAd && isFinite(video.duration) && video.duration > 0 && video.duration <= 180) {
                 hasJumpedThisAd = true;
-                video.currentTime = Math.max(0, video.duration - 0.2);
+                video.currentTime = Math.max(0, video.duration - 0.1);
               }
 
               // Play if paused without flood
-              if (video.paused && video.readyState >= 2 && !isPlayingAd && !window.__userWantsPaused) {
+              if (video.paused && !isPlayingAd && !window.__userWantsPaused) {
                 isPlayingAd = true;
                 try {
                   var p = video.play();
@@ -328,46 +425,46 @@ export const youtubeAdBlocker: ExtensionManifest = {
             } else {
               // NOT AN AD
               if (wasAdActive) {
-                // Ad ended: restore user settings instantly
-                wasAdActive = false;
-                hasJumpedThisAd = false;
-                currentAdSrc = '';
-                video.playbackRate = savedPlaybackRate || 1.0;
-                video.muted = savedMuted || false;
-                video.volume = savedVolume || 1;
+                // Debounce ad exit (150ms) to prevent violent flickering between back-to-back ads (Ad 1 of 2 -> Ad 2 of 2)
+                if (!adExitDebounceTimer) {
+                  adExitDebounceTimer = setTimeout(function() {
+                    adExitDebounceTimer = null;
+                    var activeVideo = document.querySelector('video');
+                    var activePlayer = findPlayer(activeVideo);
+                    if (checkIsAd(activeVideo, activePlayer)) {
+                      return;
+                    }
 
-                if (video.paused && !video.ended && !window.__userWantsPaused) {
-                  try { video.play().catch(function(){}); } catch(e) {}
-                }
-                if (player && !window.__userWantsPaused) {
-                  try {
-                    if (typeof player.unMute === 'function') player.unMute();
-                    if (typeof player.getVolume === 'function' && player.getVolume() === 0) {
-                      player.setVolume(Math.round((savedVolume || 1) * 100));
-                    }
-                    if (typeof player.playVideo === 'function') player.playVideo();
-                  } catch(e) {}
-                }
+                    wasAdActive = false;
+                    hasJumpedThisAd = false;
+                    currentAdSrc = '';
 
-                // Automatic MediaCodec hardware decoder flush & unfreeze kick:
-                // Prevents black screen freeze after ad skip without needing manual scrub
-                var unfreezeDecoder = function() {
-                  try {
-                    if (!video || video.ended || window.__userWantsPaused) return;
-                    if (video.currentTime < 1.0) {
-                      video.currentTime = Math.max(0.01, (video.currentTime || 0) + 0.01);
+                    if (activeVideo) {
+                      activeVideo.playbackRate = savedPlaybackRate || 1.0;
+                      activeVideo.muted = savedMuted || false;
+                      activeVideo.volume = savedVolume || 1;
+
+                      // Anti-black screen guard: if the main video was mistakenly jumped past beginning, reset currentTime
+                      if (activeVideo.duration > 120 && activeVideo.currentTime > activeVideo.duration - 5) {
+                        activeVideo.currentTime = 0;
+                      }
+
+                      if (activeVideo.paused && !activeVideo.ended && !window.__userWantsPaused) {
+                        try { activeVideo.play().catch(function(){}); } catch(e) {}
+                      }
                     }
-                    if (video.paused && !window.__userWantsPaused) {
-                      video.play().catch(function(){});
+
+                    if (activePlayer && !window.__userWantsPaused) {
+                      try {
+                        if (typeof activePlayer.unMute === 'function') activePlayer.unMute();
+                        if (typeof activePlayer.getVolume === 'function' && activePlayer.getVolume() === 0) {
+                          activePlayer.setVolume(Math.round((savedVolume || 1) * 100));
+                        }
+                        if (typeof activePlayer.playVideo === 'function') activePlayer.playVideo();
+                      } catch(e) {}
                     }
-                    if (player && typeof player.playVideo === 'function' && !window.__userWantsPaused) {
-                      player.playVideo();
-                    }
-                  } catch(e) {}
-                };
-                setTimeout(unfreezeDecoder, 60);
-                setTimeout(unfreezeDecoder, 200);
-                setTimeout(unfreezeDecoder, 500);
+                  }, 150);
+                }
               } else if (video.playbackRate >= 4.0) {
                 // Safety recovery in case ad detection ended abruptly
                 video.playbackRate = savedPlaybackRate || 1.0;
@@ -377,7 +474,7 @@ export const youtubeAdBlocker: ExtensionManifest = {
         }
 
         // 1. Polling interval for fast ad skip response and dialog dismissal
-        setInterval(runAdSkipper, 40);
+        setInterval(runAdSkipper, 35);
         setInterval(dismissWarnings, 500);
         dismissWarnings();
 
@@ -410,6 +507,10 @@ export const youtubeAdBlocker: ExtensionManifest = {
 
         // 4. Handle YouTube SPA navigation
         window.addEventListener('yt-navigate-finish', function() {
+          if (adExitDebounceTimer) {
+            clearTimeout(adExitDebounceTimer);
+            adExitDebounceTimer = null;
+          }
           wasAdActive = false;
           hasJumpedThisAd = false;
           currentAdSrc = '';
@@ -423,7 +524,7 @@ export const youtubeAdBlocker: ExtensionManifest = {
         function unfreezeWatchdog() {
           var v = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream');
           if (!v) v = document.querySelector('video');
-          if (!v || v.paused || v.ended || v.readyState < 2 || checkIsAd(v) || window.__userWantsPaused) {
+          if (!v || checkIsAd(v) || window.__userWantsPaused) {
             freezeStallCount = 0;
             return;
           }
@@ -432,24 +533,41 @@ export const youtubeAdBlocker: ExtensionManifest = {
             return;
           }
 
-          if (v.currentTime === lastWatchedTime) {
+          // Case A: Main video was left in a paused/interrupted state right after ad transition
+          if (v.paused && !v.ended && v.readyState >= 1) {
             freezeStallCount++;
-            if (freezeStallCount >= 6) {
+            if (freezeStallCount >= 3) { // ~900ms of unexpected pause
               freezeStallCount = 0;
               try {
-                // Micro-nudge forward flushes decoder buffer and immediately restores rendering
-                v.currentTime = v.currentTime + 0.01;
                 v.play().catch(function(){});
                 var p = findPlayer(v);
                 if (p && typeof p.playVideo === 'function') p.playVideo();
               } catch(e) {}
             }
-          } else {
-            lastWatchedTime = v.currentTime;
-            freezeStallCount = 0;
+            return;
+          }
+
+          // Case B: Video is playing but frame timeline is stuck on a single frame (MediaCodec hardware stall)
+          if (!v.paused && !v.ended && v.readyState >= 2) {
+            if (v.currentTime === lastWatchedTime) {
+              freezeStallCount++;
+              if (freezeStallCount >= 4) { // ~1.2s of frozen frame
+                freezeStallCount = 0;
+                try {
+                  // Micro-nudge forward flushes decoder buffer and immediately restores rendering
+                  v.currentTime = v.currentTime + 0.01;
+                  v.play().catch(function(){});
+                  var p2 = findPlayer(v);
+                  if (p2 && typeof p2.playVideo === 'function') p2.playVideo();
+                } catch(e) {}
+              }
+            } else {
+              lastWatchedTime = v.currentTime;
+              freezeStallCount = 0;
+            }
           }
         }
-        setInterval(unfreezeWatchdog, 500);
+        setInterval(unfreezeWatchdog, 300);
       })();
     `;
   },

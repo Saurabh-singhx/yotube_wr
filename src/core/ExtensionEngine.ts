@@ -98,26 +98,53 @@ export class ExtensionEngine {
     isDark: boolean = true
   ): string {
     const matching = this.getMatchingExtensions(extensions, currentUrl);
+    const isYouTube = currentUrl.includes('youtube.com') || this.matchesUrl('*://*.youtube.com/*', currentUrl);
 
     let script = `
       (function() {
         // Enforce Initial Theme on Document Start
         var isDark = ${isDark};
+        var isYouTube = ${isYouTube};
         try {
           if (isDark) {
             document.documentElement.setAttribute('dark', 'true');
             if (document.body) document.body.setAttribute('dark', 'true');
             document.documentElement.style.colorScheme = 'dark';
-            document.cookie = "PREF=f6=400; path=/; domain=.youtube.com; max-age=31536000";
-            var initDarkStyle = document.createElement('style');
-            initDarkStyle.id = '__rn_init_dark_style__';
-            initDarkStyle.textContent = 'html, body, #app, ytm-app { background: #0f0f0f !important; color-scheme: dark !important; }';
-            (document.head || document.documentElement).appendChild(initDarkStyle);
+            if (isYouTube) {
+              document.cookie = "PREF=f6=400; path=/; domain=.youtube.com; max-age=31536000";
+              var initDarkStyle = document.createElement('style');
+              initDarkStyle.id = '__rn_init_dark_style__';
+              initDarkStyle.textContent = 'html, body, #app, ytm-app { background: #0f0f0f !important; color-scheme: dark !important; }';
+              (document.head || document.documentElement).appendChild(initDarkStyle);
+
+              // Pre-warm DNS and TLS handshakes for YouTube media and thumbnail CDNs
+              try {
+                var cdns = [
+                  'https://googlevideo.com',
+                  'https://i.ytimg.com',
+                  'https://yt3.ggpht.com'
+                ];
+                for (var c = 0; c < cdns.length; c++) {
+                  var l1 = document.createElement('link');
+                  l1.rel = 'preconnect';
+                  l1.href = cdns[c];
+                  l1.crossOrigin = 'anonymous';
+                  (document.head || document.documentElement).appendChild(l1);
+
+                  var l2 = document.createElement('link');
+                  l2.rel = 'dns-prefetch';
+                  l2.href = cdns[c];
+                  (document.head || document.documentElement).appendChild(l2);
+                }
+              } catch(e) {}
+            }
           } else {
             document.documentElement.removeAttribute('dark');
             if (document.body) document.body.removeAttribute('dark');
             document.documentElement.style.colorScheme = 'light';
-            document.cookie = "PREF=f6=0; path=/; domain=.youtube.com; max-age=31536000";
+            if (isYouTube) {
+              document.cookie = "PREF=f6=0; path=/; domain=.youtube.com; max-age=31536000";
+            }
           }
         } catch(e) {}
 
@@ -172,8 +199,10 @@ export class ExtensionEngine {
     isDark: boolean = true
   ): string {
     const matching = this.getMatchingExtensions(extensions, currentUrl);
+    const isYouTube = currentUrl.includes('youtube.com') || this.matchesUrl('*://*.youtube.com/*', currentUrl);
 
-    let cssPayload = `
+    let cssPayload = isYouTube
+      ? (`
       /* Eradicate redundant mobile YouTube bottom navigation bar behind native BottomDock */
       ytm-pivot-bar-renderer,
       .pivot-bar,
@@ -188,6 +217,25 @@ export class ExtensionEngine {
       /* Ensure feed and browse content can scroll past the floating bottom dock */
       ytm-app, #app, ytm-browse, .tab-content, ytm-watch {
         padding-bottom: 76px !important;
+      }
+
+      /* Ensure YouTube top header account, profile, and settings buttons are always visible and clickable */
+      ytm-header-bar a[href*="/account"],
+      ytm-header-bar a[href*="/signin"],
+      ytm-header-bar button[aria-label*="Account" i],
+      ytm-header-bar button[aria-label*="Settings" i],
+      ytm-header-bar .header-bar-button {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+      }
+
+      /* Eradicate 300ms touch-to-click delay across all links, buttons, and video thumbnails */
+      html, body, a, button, [role="button"], ytm-media-item, .media-item-thumbnail-container,
+      .compact-media-item, ytm-compact-video-renderer, ytd-thumbnail, #thumbnail,
+      .video-thumbnail-container, .ytm-media-item {
+        touch-action: manipulation !important;
       }
 
       /* Dismiss first-install consent dialogs, mealbar banners & app prompts */
@@ -223,7 +271,8 @@ export class ExtensionEngine {
         html:not([dark]) {
           color-scheme: light !important;
         }
-      `);
+      `))
+      : '';
 
     let jsEndPayload = '';
 
@@ -257,6 +306,7 @@ export class ExtensionEngine {
     return `
       (function() {
         var isDark = ${isDark};
+        var isYouTube = ${isYouTube};
 
         // Enforce YouTube Theme
         function enforceTheme() {
@@ -273,22 +323,24 @@ export class ExtensionEngine {
           } catch(e) {}
         }
 
-        // Apply theme immediately
-        enforceTheme();
-        window.addEventListener('yt-navigate-finish', enforceTheme);
-        window.addEventListener('DOMContentLoaded', enforceTheme);
+        if (isYouTube) {
+          // Apply theme immediately
+          enforceTheme();
+          window.addEventListener('yt-navigate-finish', enforceTheme);
+          window.addEventListener('DOMContentLoaded', enforceTheme);
 
-        // MutationObserver to keep theme synchronized if YouTube tries to revert
-        try {
-          var themeObserver = new MutationObserver(function() {
-            if (isDark && !document.documentElement.hasAttribute('dark')) {
-              document.documentElement.setAttribute('dark', 'true');
-            } else if (!isDark && document.documentElement.hasAttribute('dark')) {
-              document.documentElement.removeAttribute('dark');
-            }
-          });
-          themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['dark'] });
-        } catch(e) {}
+          // MutationObserver to keep theme synchronized if YouTube tries to revert
+          try {
+            var themeObserver = new MutationObserver(function() {
+              if (isDark && !document.documentElement.hasAttribute('dark')) {
+                document.documentElement.setAttribute('dark', 'true');
+              } else if (!isDark && document.documentElement.hasAttribute('dark')) {
+                document.documentElement.removeAttribute('dark');
+              }
+            });
+            themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['dark'] });
+          } catch(e) {}
+        }
 
         // Inject Combined CSS
         function applyExtensionStyles() {
@@ -315,6 +367,61 @@ export class ExtensionEngine {
         // Re-apply styles on YouTube SPA navigation
         window.addEventListener('yt-navigate-finish', applyExtensionStyles);
         window.addEventListener('popstate', applyExtensionStyles);
+
+        // Instant Video Playback Accelerator: Starts playback immediately on thumbnail click without mobile cued delay
+        if (isYouTube) {
+          function kickInstantPlayback() {
+            if (window.__userWantsPaused) return;
+
+            var video = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream');
+            if (!video) video = document.querySelector('video');
+            if (!video) return;
+
+            // Never interfere if an ad is actively showing
+            var player = document.getElementById('movie_player') ||
+                         document.getElementById('player') ||
+                         document.querySelector('.html5-video-player');
+
+            if (player) {
+              try {
+                if (typeof player.isAdShowing === 'function' && player.isAdShowing()) return;
+              } catch(e) {}
+              var cls = player.className || '';
+              if (cls.indexOf('ad-showing') !== -1) return;
+            }
+
+            // If the player is on a watch page and waiting in a cued or paused state:
+            if (video.paused && !video.ended && !window.__userWantsPaused) {
+              // Click cued thumbnail overlay or large play button immediately
+              var cuedOverlay = document.querySelector('.ytp-cued-thumbnail-overlay, .ytp-large-play-button');
+              if (cuedOverlay) {
+                try { cuedOverlay.click(); } catch(e) {}
+              }
+
+              if (player && typeof player.playVideo === 'function') {
+                try { player.playVideo(); } catch(e) {}
+              }
+
+              try {
+                var p = video.play();
+                if (p && typeof p.catch === 'function') p.catch(function(){});
+              } catch(e) {}
+            }
+          }
+
+          window.addEventListener('yt-navigate-finish', function() {
+            kickInstantPlayback();
+            setTimeout(kickInstantPlayback, 50);
+            setTimeout(kickInstantPlayback, 150);
+            setTimeout(kickInstantPlayback, 350);
+            setTimeout(kickInstantPlayback, 650);
+          });
+
+          window.addEventListener('popstate', function() {
+            kickInstantPlayback();
+            setTimeout(kickInstantPlayback, 80);
+          });
+        }
 
         // Execute JS End scripts
         ${jsEndPayload}

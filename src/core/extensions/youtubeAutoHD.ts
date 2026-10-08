@@ -68,6 +68,10 @@ export const youtubeAutoHD: ExtensionManifest = {
           var videoId = getVideoId();
           if (!videoId) return;
 
+          var video = document.querySelector('video');
+          // Wait until video has begun playback so we don't abort the initial startup buffer
+          if (video && video.paused && !video.ended) return;
+
           if (videoId !== lastProcessedVideoId) {
             lastProcessedVideoId = videoId;
             attemptsForCurrentVideo = 0;
@@ -117,8 +121,8 @@ export const youtubeAutoHD: ExtensionManifest = {
         // Run when video elements become active or play
         document.addEventListener('play', function(e) {
           if (e.target && e.target.tagName === 'VIDEO') {
-            setTimeout(enforceMaxQuality, 400);
-            setTimeout(enforceMaxQuality, 1200);
+            setTimeout(enforceMaxQuality, 800);
+            setTimeout(enforceMaxQuality, 2000);
           }
         }, true);
 
@@ -126,9 +130,9 @@ export const youtubeAutoHD: ExtensionManifest = {
         window.addEventListener('yt-navigate-finish', function() {
           lastProcessedVideoId = null;
           attemptsForCurrentVideo = 0;
-          setTimeout(enforceMaxQuality, 500);
-          setTimeout(enforceMaxQuality, 1500);
-          setTimeout(enforceMaxQuality, 3000);
+          setTimeout(enforceMaxQuality, 1000);
+          setTimeout(enforceMaxQuality, 2500);
+          setTimeout(enforceMaxQuality, 4000);
         });
 
         // Periodic light check

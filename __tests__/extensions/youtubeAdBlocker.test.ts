@@ -22,7 +22,7 @@ describe('AdShield Pro - youtubeAdBlocker Extension', () => {
       expect(css).toBe('');
     });
 
-    it('returns CSS rules hiding promotional banner selectors when blockBanners is true', () => {
+    it('returns CSS rules hiding promotional banner selectors and ad overlay elements when blockBanners is true', () => {
       const css = typeof youtubeAdBlocker.injectedCSS === 'function'
         ? youtubeAdBlocker.injectedCSS({ blockBanners: true })
         : youtubeAdBlocker.injectedCSS;
@@ -30,6 +30,9 @@ describe('AdShield Pro - youtubeAdBlocker Extension', () => {
       expect(css).toContain('ytm-promoted-sparkles-web-renderer');
       expect(css).toContain('#player-ads');
       expect(css).toContain('ytm-companion-slot');
+      expect(css).toContain('.ytp-ad-player-overlay');
+      expect(css).toContain('.ytp-ad-skip-button-slot');
+      expect(css).toContain('.ytp-ad-badge');
       expect(css).toContain('display: none !important');
     });
 
@@ -43,15 +46,63 @@ describe('AdShield Pro - youtubeAdBlocker Extension', () => {
     });
   });
 
-  describe('injectedJSStart', () => {
-    it('initializes window bridge preparation without breaking native fetch', () => {
+  describe('injectedJSStart (Data-Level Ad Schedule Pruning)', () => {
+    it('initializes window bridge preparation without breaking native fetch streams', () => {
       const js = typeof youtubeAdBlocker.injectedJSStart === 'function'
         ? youtubeAdBlocker.injectedJSStart({})
         : youtubeAdBlocker.injectedJSStart;
       expect(js).toContain('__AD_INTERCEPT_LOADED__');
       expect(js).toContain('ytInitialPlayerResponse');
-      // Should not monkey-patch fetch (which causes content decoding failures)
+      expect(js).toContain('pruneAdData');
+      expect(js).toContain('Response.prototype.json');
+      expect(js).toContain('JSON.parse');
+      // Should not monkey-patch fetch stream object itself (which causes content decoding failures)
       expect(js).not.toContain('window.fetch =');
+    });
+
+    it('sanitizes ytInitialPlayerResponse by deleting adPlacements and adSlots', () => {
+      const js = typeof youtubeAdBlocker.injectedJSStart === 'function'
+        ? youtubeAdBlocker.injectedJSStart({})
+        : '';
+      eval(js!);
+
+      // Set initial player response with ad metadata
+      const mockResponse = {
+        adPlacements: [{ adPlacementRenderer: {} }],
+        playerAds: [{ playerAdRenderer: {} }],
+        adSlots: [{ adSlotRenderer: {} }],
+        adBreakHeartbeatParams: 'params',
+        videoDetails: { title: 'Test Video' }
+      };
+
+      (window as any).ytInitialPlayerResponse = mockResponse;
+
+      // Assert that ad properties are purged while videoDetails remains intact
+      expect((window as any).ytInitialPlayerResponse.adPlacements).toBeUndefined();
+      expect((window as any).ytInitialPlayerResponse.playerAds).toBeUndefined();
+      expect((window as any).ytInitialPlayerResponse.adSlots).toBeUndefined();
+      expect((window as any).ytInitialPlayerResponse.adBreakHeartbeatParams).toBeUndefined();
+      expect((window as any).ytInitialPlayerResponse.videoDetails.title).toBe('Test Video');
+    });
+
+    it('sanitizes parsed JSON objects containing adPlacements in JSON.parse', () => {
+      const js = typeof youtubeAdBlocker.injectedJSStart === 'function'
+        ? youtubeAdBlocker.injectedJSStart({})
+        : '';
+      eval(js!);
+
+      const jsonStr = JSON.stringify({
+        playerResponse: {
+          adPlacements: [{ foo: 'bar' }],
+          adSlots: [{ slot: 1 }]
+        },
+        other: 123
+      });
+
+      const parsed = JSON.parse(jsonStr);
+      expect(parsed.playerResponse.adPlacements).toBeUndefined();
+      expect(parsed.playerResponse.adSlots).toBeUndefined();
+      expect(parsed.other).toBe(123);
     });
   });
 
@@ -63,12 +114,12 @@ describe('AdShield Pro - youtubeAdBlocker Extension', () => {
       expect(js).toBe('');
     });
 
-    it('generates the active skipping script with 10x safe speed and duration end skip', () => {
+    it('generates the active skipping script with 16x safe speed and duration end skip', () => {
       const js = typeof youtubeAdBlocker.injectedJSEnd === 'function'
         ? youtubeAdBlocker.injectedJSEnd({ blockVideoAds: true, muteDuringAd: true })
         : youtubeAdBlocker.injectedJSEnd;
       expect(js).toContain('__AD_SKIPPER_ACTIVE__');
-      expect(js).toContain('video.playbackRate = 10.0');
+      expect(js).toContain('video.playbackRate = 16.0');
       expect(js).toContain('video.currentTime = Math.max');
       expect(js).toContain('MutationObserver');
       expect(js).toContain('clickSkipButtons');
@@ -134,13 +185,13 @@ describe('AdShield Pro - youtubeAdBlocker Extension', () => {
       // Evaluate script in context
       eval(scriptCode!);
 
-      // Advance timer by 40ms to trigger runAdSkipper
+      // Advance timer by 50ms to trigger runAdSkipper
       jest.advanceTimersByTime(50);
 
       // Assertions
       expect(video.muted).toBe(true);
       expect(video.volume).toBe(0);
-      expect(video.playbackRate).toBe(10.0);
+      expect(video.playbackRate).toBe(16.0);
       expect(video.currentTime).toBeGreaterThanOrEqual(14);
       expect(skipBtn.click).toHaveBeenCalled();
       expect((window as any).__RN_EXTENSION_BRIDGE__.send).toHaveBeenCalledWith(
@@ -152,7 +203,7 @@ describe('AdShield Pro - youtubeAdBlocker Extension', () => {
       jest.useRealTimers();
     });
 
-    it('restores normal speed and volume once ad ends', () => {
+    it('restores normal speed and volume once ad ends after debounce period', () => {
       jest.useFakeTimers();
 
       const video = document.createElement('video');
@@ -177,19 +228,69 @@ describe('AdShield Pro - youtubeAdBlocker Extension', () => {
 
       // Tick while ad is showing
       jest.advanceTimersByTime(50);
-      expect(video.playbackRate).toBe(10.0);
+      expect(video.playbackRate).toBe(16.0);
       expect(video.muted).toBe(true);
 
       // Ad ends: remove ad-showing class
       player.className = 'html5-video-player';
 
-      // Next tick
-      jest.advanceTimersByTime(50);
+      // Within debounce window (< 150ms), volume and rate are preserved to avoid audio pop / flicker
+      jest.advanceTimersByTime(100);
+      expect(video.playbackRate).toBe(16.0);
+      expect(video.muted).toBe(true);
 
-      // Restored
+      // After debounce window expires (> 150ms), normal speed and volume are cleanly restored
+      jest.advanceTimersByTime(100);
       expect(video.playbackRate).toBe(1.0);
       expect(video.muted).toBe(false);
       expect(video.volume).toBe(0.8);
+
+      jest.useRealTimers();
+    });
+
+    it('prevents flicker during sequential ads (Ad 1 of 2 -> Ad 2 of 2) via debounce lock', () => {
+      jest.useFakeTimers();
+
+      const video = document.createElement('video');
+      video.muted = false;
+      video.volume = 0.9;
+      video.playbackRate = 1.0;
+      Object.defineProperty(video, 'duration', { value: 15, writable: true });
+      Object.defineProperty(video, 'readyState', { value: 4, writable: true });
+      video.currentTime = 0;
+      video.play = jest.fn().mockResolvedValue(undefined);
+      document.body.appendChild(video);
+
+      const player = document.createElement('div');
+      player.id = 'player';
+      player.className = 'ad-showing';
+      document.body.appendChild(player);
+
+      const scriptCode = typeof youtubeAdBlocker.injectedJSEnd === 'function'
+        ? youtubeAdBlocker.injectedJSEnd({ blockVideoAds: true, muteDuringAd: true })
+        : '';
+      eval(scriptCode!);
+
+      // Ad 1 starts: muted and 16x
+      jest.advanceTimersByTime(50);
+      expect(video.muted).toBe(true);
+      expect(video.playbackRate).toBe(16.0);
+
+      // Ad 1 finishes, YouTube momentarily removes ad-showing class for 60ms before mounting Ad 2
+      player.className = 'html5-video-player';
+      jest.advanceTimersByTime(60);
+
+      // Debounce lock holds: speed and mute do NOT bounce back to 1.0 / unmuted (no pop / no flicker)
+      expect(video.muted).toBe(true);
+      expect(video.playbackRate).toBe(16.0);
+
+      // Ad 2 mounts within the 150ms debounce window
+      player.className = 'html5-video-player ad-showing';
+      jest.advanceTimersByTime(50);
+
+      // Still muted and 16x without ever glitching or unmuting
+      expect(video.muted).toBe(true);
+      expect(video.playbackRate).toBe(16.0);
 
       jest.useRealTimers();
     });
@@ -218,6 +319,42 @@ describe('AdShield Pro - youtubeAdBlocker Extension', () => {
 
       expect(dismissBtn.click).toHaveBeenCalled();
       expect(backdrop.remove).toHaveBeenCalled();
+
+      jest.useRealTimers();
+    });
+
+    it('does not treat real video as an ad when player.isAdShowing returns false despite lingering ad-showing class', () => {
+      jest.useFakeTimers();
+
+      const video = document.createElement('video');
+      video.muted = false;
+      video.volume = 1.0;
+      video.playbackRate = 1.0;
+      Object.defineProperty(video, 'duration', { value: 600, writable: true });
+      Object.defineProperty(video, 'readyState', { value: 4, writable: true });
+      video.currentTime = 5;
+      video.play = jest.fn().mockResolvedValue(undefined);
+      document.body.appendChild(video);
+
+      const player = document.createElement('div');
+      player.id = 'movie_player';
+      // Lingering class from YouTube
+      player.className = 'html5-video-player ad-showing';
+      // But native API reports NO ad is showing!
+      (player as any).isAdShowing = jest.fn().mockReturnValue(false);
+      document.body.appendChild(player);
+
+      const scriptCode = typeof youtubeAdBlocker.injectedJSEnd === 'function'
+        ? youtubeAdBlocker.injectedJSEnd({ blockVideoAds: true, muteDuringAd: true })
+        : '';
+      eval(scriptCode!);
+
+      jest.advanceTimersByTime(50);
+
+      // Must NOT fast-forward or jump the real video
+      expect(video.playbackRate).toBe(1.0);
+      expect(video.currentTime).toBe(5);
+      expect(video.muted).toBe(false);
 
       jest.useRealTimers();
     });
