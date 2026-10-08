@@ -4,36 +4,43 @@ This folder contains the **Standalone Release APK** for `YouTube_wr`.
 The JavaScript bundle (`index.android.bundle`) and Hermes bytecode are **pre-packaged inside the APK**, allowing it to run completely offline without Metro or any USB/Wi-Fi connection to a development computer.
 
 ## Latest Build Information
-- **Version:** `v1.1.2` (Build `6` / `versionCode: 6`)
-- **Build Date:** October 6, 2026
-- **SHA-256 Checksum:** `4bd7dfe734dfe06b4051b3beceea0eba9f1c7857122bf8ac6957a931e0fa1f46`
+- **Version:** `v1.5.6` (Build `27` / `versionCode: 27`)
+- **Build Date:** October 8, 2026
+- **SHA-256 Checksum:** `3188a7e93cbb1cddc145ca53387735b9106f3d7d7e977ede813cca4388204313`
 
 ## Built-in Features
 - **Official Custom Logo (`logo/logo.png`)**: Applied as the app launcher icon, adaptive icon, splash screen, and in-app header branding.
 - **Offline / Standalone Ready**: `index.android.bundle` is embedded directly into APK assets with Hermes AOT bytecode.
+- **Enhanced AdShield Pro**:
+  - **Tier 1 (Safe Data Neutralization)**: Deletes ad payloads at `document_start` across `ytInitialPlayerResponse`, `Response.prototype.json`, and `JSON.parse` to prevent player schema validation crashes.
+  - **Tier 2 (Cosmetic Shielding)**: CSS suppression hides ad overlays, badges, and skip buttons instantly before DOM render.
+  - **Tier 3 (Velocity Skipper & Debounce Lock)**: 16x accelerated ad skipping with a 150ms Exit Debounce Lock to eliminate audio pops and flickering between sequential ads.
+- **Instant Video Playback Accelerator**:
+  - Eliminates 300ms touch-to-click mobile delay on thumbnails and buttons (`touch-action: manipulation`).
+  - Pre-warms DNS and preconnects to Google video and image CDNs (`googlevideo.com`, `i.ytimg.com`, `yt3.ggpht.com`).
+  - Kicks cued thumbnail overlays immediately on navigation so videos start playing without delay.
 - **Background Playback & Native Media Controls**:
   - Direct native execution bypasses background WebView bridge suspension.
-  - Native playback stabilization: Decoupled service focus from Chromium to eliminate internal audio focus collisions and rogue auto-pauses.
-  - Simplified pause handling: Foreground playback operates 100% naturally while background automated pauses are suppressed.
-  - Headphone disconnect auto-pause (`ACTION_AUDIO_BECOMING_NOISY`).
   - Full transport controls in notification drawer and lock screen: Play/Pause, Rewind 10s, Fast-Forward 10s, Next Track, Previous Track.
-  - Automatic task cleanup (`onTaskRemoved` & `setDeleteIntent`): Dismisses notification cleanly when app is swiped away.
   - Back button minimization: Keeps background playback alive without killing the app.
-- **AdShield Pro v3.1**: Sub-frame ad detection, fast-forward 16x ad skipping, zero black screens, anti-adblock dialog dismissal.
-- **Auto HD Quality Lock**: Enforces 1080p / 4K resolution across mobile and desktop player containers.
+- **Multi-Platform WebApps Hub & Instagram Shield**:
+  - High-DPI 1080p video profile spoofing (`ig_pr=3`, `ig_vw=1080`, `ig_vh=1920`).
+  - Fluid reel vertical scrolling and gesture handling without viewport zoom destruction.
+  - Non-colliding floating dock button to keep external webapp navigation unobstructed.
+  - Optional Desktop Mode toggle with desktop User-Agent.
+- **Auto HD Quality Lock**: Enforces 1080p / 4K resolution across mobile and desktop player containers without interfering with startup buffering.
 - **Zen Mode (Distraction-Free)**: Suppresses Shorts shelves, comment sections, related suggestions, and end screens.
-- **WebApps Hub & Picture-in-Picture (PiP)**: Multitask across Instagram, X, Reddit, TikTok, Twitch with draggable floating video miniplayer.
-- **Fullscreen & Screen Zoom Customization**: 16:9 Fit, Zoom to Fill (crops wide screen black bars), Stretch, fine-tuned stepper, 2-finger pinch gestures, and floating HUD overlay.
+- **Fullscreen & Screen Zoom Customization**: 16:9 Fit, Zoom to Fill, Stretch, fine-tuned stepper, and isolated 2-finger zoom gestures.
 
 ## APK Files
-- `YouTube_wr-v1.1.2-b6.apk` (75.95 MB): Version and build-tagged release binary.
-- `YouTube_wr-v1.1.2.apk` (75.95 MB): Version-tagged release binary.
-- `YouTube_wr.apk` (75.95 MB): Latest stable release binary.
-- `app-release.apk` (75.95 MB): Direct release binary.
+- `YouTube_wr-v1.5.6-b27.apk` (76.01 MB): Version and build-tagged release binary.
+- `YouTube_wr-v1.5.6.apk` (76.01 MB): Version-tagged release binary.
+- `YouTube_wr.apk` (76.01 MB): Latest stable release binary.
+- `app-release.apk` (76.01 MB): Direct release binary.
 
 ## Installation Instructions
 Install directly onto any Android phone:
 ```bash
-adb install -r generated_apk/YouTube_wr.apk
+adb install -r generated_apk/YouTube_wr-v1.5.6.apk
 ```
-Or copy `YouTube_wr.apk` (or `YouTube_wr-v1.1.0.apk`) to your phone storage and tap to install!
+Or copy `YouTube_wr-v1.5.6.apk` (or `YouTube_wr.apk`) to your phone storage and tap to install!
