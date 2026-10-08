@@ -70,6 +70,19 @@ function MainApp() {
   const [isDesktopMode, setIsDesktopMode] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
+  // Check whether user is viewing Instagram (target URI or active page)
+  const isInstagram = useMemo(() => {
+    return (
+      (typeof currentUrl === 'string' && currentUrl.includes('instagram.com')) ||
+      (typeof activeSourceUri === 'string' && activeSourceUri.includes('instagram.com'))
+    );
+  }, [currentUrl, activeSourceUri]);
+
+  // Always use mobile user agent by default for optimal mobile responsive experience
+  const effectiveUserAgent = useMemo(() => {
+    return isDesktopMode ? DESKTOP_USER_AGENT : MOBILE_USER_AGENT;
+  }, [isDesktopMode]);
+
   // Picture-in-Picture (PiP) State
   const [pipVideoId, setPipVideoId] = useState<string | null>(null);
   const lastVideoIdRef = useRef<string | null>(null);
@@ -159,15 +172,20 @@ function MainApp() {
   }, [activeSourceUri]);
 
   // Compile extension scripts (recomputed when extensions, active webapp source, or dark theme change)
+  const targetScriptUrl = isInstagram ? 'https://www.instagram.com' : (activeSourceUri || currentUrl);
+
   const injectedStartScript = useMemo(() => {
-    return ExtensionEngine.buildBeforeContentLoadedScript(extensions, activeSourceUri, isDark);
-  }, [extensions, activeSourceUri, isDark]);
+    return ExtensionEngine.buildBeforeContentLoadedScript(extensions, targetScriptUrl, isDark);
+  }, [extensions, targetScriptUrl, isDark]);
 
   const injectedEndScript = useMemo(() => {
-    const baseScript = ExtensionEngine.buildAfterContentLoadedScript(extensions, activeSourceUri, isDark);
+    const baseScript = ExtensionEngine.buildAfterContentLoadedScript(extensions, targetScriptUrl, isDark);
+    if (isInstagram) {
+      return baseScript;
+    }
     const zoomScript = getZoomRuntimeScript();
     return `${baseScript}\n${zoomScript}`;
-  }, [extensions, activeSourceUri, isDark]);
+  }, [extensions, targetScriptUrl, isDark, isInstagram]);
 
   // Fullscreen tracking for in-page YouTube player
   const [isWebFullscreen, setIsWebFullscreen] = useState(false);
@@ -511,7 +529,7 @@ function MainApp() {
         <WebView
           ref={webViewRef}
           source={webViewSource}
-          userAgent={isDesktopMode ? DESKTOP_USER_AGENT : MOBILE_USER_AGENT}
+          userAgent={effectiveUserAgent}
           injectedJavaScriptBeforeContentLoaded={injectedStartScript}
           injectedJavaScript={injectedEndScript}
           onMessage={(event) => {
@@ -552,7 +570,20 @@ function MainApp() {
             setCanGoBack(navState.canGoBack);
             setCanGoForward(navState.canGoForward);
             if (navState.url) {
+              const prevUrl = currentUrl;
               setCurrentUrl(navState.url);
+
+              // Auto-restore clean mobile render when leaving Instagram via browser back button
+              const wasInstagram = prevUrl && prevUrl.includes('instagram.com');
+              const nowInstagram = navState.url.includes('instagram.com');
+              if (wasInstagram && !nowInstagram && !activeSourceUri.includes('instagram.com')) {
+                setTimeout(() => {
+                  if (webViewRef.current) {
+                    webViewRef.current.reload();
+                  }
+                }, 100);
+              }
+
               const vid = extractVideoId(navState.url);
               if (vid) {
                 if (vid !== lastVideoIdRef.current) {
@@ -595,6 +626,8 @@ function MainApp() {
           textZoom={100}
           scalesPageToFit={false}
           androidLayerType="hardware"
+          nestedScrollEnabled={true}
+          overScrollMode="never"
           mixedContentMode="always"
           originWhitelist={['*']}
           style={[styles.webView, { backgroundColor: palette.background }]}
@@ -622,6 +655,14 @@ function MainApp() {
           onGoHome={handleGoHome}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
           isVideoPlaying={isVideoPlaying}
+          isInstagram={isInstagram}
+          onInstagramAction={(action) => {
+            if (webViewRef.current) {
+              webViewRef.current.injectJavaScript(
+                `if (window.__INSTAGRAM_SHIELD_ACTIONS__ && window.__INSTAGRAM_SHIELD_ACTIONS__["${action}"]) { window.__INSTAGRAM_SHIELD_ACTIONS__["${action}"](); } true;`
+              );
+            }
+          }}
         />
       )}
 
@@ -637,6 +678,16 @@ function MainApp() {
         onTogglePip={handleTogglePip}
         onOpenExtensions={() => setIsExtensionsModalOpen(true)}
         onOpenWebApps={() => setIsSearchModalOpen(true)}
+        onOpenYouTubeSettings={() => handleNavigate('https://m.youtube.com/account')}
+        onOpenYouTubeLibrary={() => handleNavigate('https://m.youtube.com/feed/you')}
+        isInstagram={isInstagram}
+        onToggleInstagramReelMode={() => {
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript(
+              `if (window.__INSTAGRAM_SHIELD_ACTIONS__ && window.__INSTAGRAM_SHIELD_ACTIONS__.toggleMode) { window.__INSTAGRAM_SHIELD_ACTIONS__.toggleMode(); } true;`
+            );
+          }
+        }}
       />
 
       {/* WebApps & Browser Hub Modal */}

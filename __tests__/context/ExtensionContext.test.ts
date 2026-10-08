@@ -11,13 +11,14 @@ describe('ExtensionContext & State Management', () => {
   });
 
   describe('Default Extensions Configuration', () => {
-    it('contains all 4 core default extensions', () => {
-      expect(DEFAULT_EXTENSIONS).toHaveLength(4);
+    it('contains all 5 core default extensions', () => {
+      expect(DEFAULT_EXTENSIONS).toHaveLength(5);
       const ids = DEFAULT_EXTENSIONS.map((e) => e.id);
       expect(ids).toContain('youtube-adblocker');
       expect(ids).toContain('youtube-auto-hd');
       expect(ids).toContain('youtube-distraction-free');
       expect(ids).toContain('youtube-sponsorblock');
+      expect(ids).toContain('instagram-shield');
     });
 
     it('all default extensions are enabled by default and have unique IDs', () => {
@@ -92,11 +93,11 @@ describe('ExtensionContext & State Management', () => {
         injectedCSS: 'body { filter: invert(1); }',
       });
 
-      expect(exts).toHaveLength(5);
+      expect(exts).toHaveLength(6);
       expect(exts.find((e) => e.id === customId)?.name).toBe('Dark Invert');
 
       deleteCustom(customId);
-      expect(exts).toHaveLength(4);
+      expect(exts).toHaveLength(5);
       expect(exts.find((e) => e.id === customId)).toBeUndefined();
     });
   });
@@ -110,14 +111,15 @@ describe('ExtensionContext & State Management', () => {
       };
 
       const handleBridgeMessage = (msg: BridgeMessage) => {
-        if (msg.extensionId === 'youtube-adblocker' && msg.type === 'AD_BLOCKED') {
+        if ((msg.extensionId === 'youtube-adblocker' || msg.extensionId === 'instagram-shield') && msg.type === 'AD_BLOCKED') {
           const isNetwork = msg.payload?.source === 'network' || msg.payload?.source === 'fetch';
           const isVideoSkip = msg.payload?.source === 'video_ad_skip';
+          const isInstagramAd = msg.extensionId === 'instagram-shield';
 
           stats = {
             adsBlocked: stats.adsBlocked + 1,
             trackersBlocked: isNetwork ? stats.trackersBlocked + 1 : stats.trackersBlocked,
-            timeSavedSeconds: stats.timeSavedSeconds + (isVideoSkip ? 15 : 5),
+            timeSavedSeconds: stats.timeSavedSeconds + (isVideoSkip ? 15 : (isInstagramAd ? 8 : 5)),
             lastBlockedAt: Date.now(),
           };
         }
@@ -146,6 +148,18 @@ describe('ExtensionContext & State Management', () => {
       expect(stats.adsBlocked).toBe(2);
       expect(stats.trackersBlocked).toBe(1);
       expect(stats.timeSavedSeconds).toBe(20);
+
+      // 1 instagram sponsored post blocked -> +1 ad, +8 seconds
+      handleBridgeMessage({
+        extensionId: 'instagram-shield',
+        type: 'AD_BLOCKED',
+        payload: { source: 'sponsored_post' },
+        timestamp: Date.now(),
+      });
+
+      expect(stats.adsBlocked).toBe(3);
+      expect(stats.trackersBlocked).toBe(1);
+      expect(stats.timeSavedSeconds).toBe(28);
     });
 
     it('resets stats to zero', () => {

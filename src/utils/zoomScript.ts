@@ -15,6 +15,7 @@
 export function getZoomRuntimeScript(): string {
   return `
 (function() {
+  if (window.location && !window.location.hostname.includes('youtube.com') && !window.location.hostname.includes('youtu.be')) return;
   if (window.__ytPinchZoomLoaded) return;
   window.__ytPinchZoomLoaded = true;
 

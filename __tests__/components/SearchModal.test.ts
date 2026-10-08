@@ -6,6 +6,8 @@ describe('SearchModal & WebApps Hub', () => {
     it('contains all essential webapps including Instagram, X, Reddit, TikTok, Twitch, and YouTube', () => {
       const ids = FEATURED_WEBAPPS.map((w) => w.id);
       expect(ids).toContain('instagram');
+      expect(ids).toContain('instagram-dms');
+      expect(ids).toContain('instagram-reels');
       expect(ids).toContain('x');
       expect(ids).toContain('reddit');
       expect(ids).toContain('tiktok');

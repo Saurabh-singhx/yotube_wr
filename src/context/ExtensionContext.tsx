@@ -130,15 +130,16 @@ export const ExtensionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const handleBridgeMessage = (msg: BridgeMessage) => {
-    if (msg.extensionId === 'youtube-adblocker' && msg.type === 'AD_BLOCKED') {
+    if ((msg.extensionId === 'youtube-adblocker' || msg.extensionId === 'instagram-shield') && msg.type === 'AD_BLOCKED') {
       const isNetwork = msg.payload?.source === 'network' || msg.payload?.source === 'fetch' || msg.payload?.source === 'xhr';
       const isVideoSkip = msg.payload?.source === 'video_ad_skip';
+      const isInstagramAd = msg.extensionId === 'instagram-shield';
 
       setStats((prev) => {
         const nextStats: AdBlockStats = {
           adsBlocked: prev.adsBlocked + 1,
           trackersBlocked: isNetwork ? prev.trackersBlocked + 1 : prev.trackersBlocked,
-          timeSavedSeconds: prev.timeSavedSeconds + (isVideoSkip ? 15 : 5),
+          timeSavedSeconds: prev.timeSavedSeconds + (isVideoSkip ? 15 : (isInstagramAd ? 8 : 5)),
           lastBlockedAt: Date.now(),
         };
         AsyncStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(nextStats)).catch(() => {});

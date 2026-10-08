@@ -27,6 +27,10 @@ interface SettingsModalProps {
   onTogglePip: () => void;
   onOpenExtensions: () => void;
   onOpenWebApps: () => void;
+  onOpenYouTubeSettings?: () => void;
+  onOpenYouTubeLibrary?: () => void;
+  isInstagram?: boolean;
+  onToggleInstagramReelMode?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -40,11 +44,197 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onTogglePip,
   onOpenExtensions,
   onOpenWebApps,
+  onOpenYouTubeSettings,
+  onOpenYouTubeLibrary,
+  isInstagram = false,
+  onToggleInstagramReelMode,
 }) => {
   const { palette, isDark, toggleTheme } = useTheme();
-  const { stats, extensions } = useExtensions();
+  const { stats, extensions, updateExtensionSettings } = useExtensions();
 
   const activeExtensionsCount = extensions.filter((e) => e.enabled).length;
+  const igExt = extensions.find((e) => e.id === 'instagram-shield');
+  const isReelModeEnabled = igExt ? (igExt.userSettings?.reelMode !== false && igExt.enabled !== false) : true;
+  const isHighQualityEnabled = igExt ? (igExt.userSettings?.forceHighQuality !== false && igExt.enabled !== false) : true;
+  const isHideDescriptionEnabled = igExt ? (igExt.userSettings?.hideReelDescription !== false && igExt.enabled !== false) : true;
+  const isScreenAdjustEnabled = igExt ? (igExt.userSettings?.screenAdjustTwoFinger !== false && igExt.enabled !== false) : true;
+  const isUnmuteEnabled = igExt ? (igExt.userSettings?.unmuteVideos !== false && igExt.enabled !== false) : true;
+
+  const renderInstagramSection = (topPlacement = false) => (
+    <View style={topPlacement ? { marginBottom: 14 } : { marginTop: 14 }}>
+      <Text style={[styles.sectionHeading, { color: isInstagram ? '#E1306C' : palette.textMuted }]}>
+        INSTAGRAM & REELS {isInstagram ? '• ACTIVE' : ''}
+      </Text>
+
+      {/* 1. Instagram Reel Mode */}
+      <NeumorphicBox depth="low" borderRadius={16} style={styles.settingItem}>
+        <View style={styles.settingLeft}>
+          <View
+            style={[
+              styles.settingIconWrap,
+              { backgroundColor: isReelModeEnabled ? '#E1306C20' : palette.surfacePressed },
+            ]}
+          >
+            <Ionicons
+              name="film"
+              size={20}
+              color={isReelModeEnabled ? '#E1306C' : palette.textPrimary}
+            />
+          </View>
+          <View style={styles.settingTextGroup}>
+            <Text style={[styles.settingTitle, { color: palette.textPrimary }]}>
+              Instagram Reel Mode
+            </Text>
+            <Text style={[styles.settingSubtitle, { color: palette.textMuted }]}>
+              {isReelModeEnabled ? 'Fullscreen 1-reel immersive player with bottom buttons removed' : 'Standard feed view'}
+            </Text>
+          </View>
+        </View>
+        <NeumorphicSwitch
+          value={isReelModeEnabled}
+          onValueChange={() => {
+            triggerHaptic();
+            updateExtensionSettings('instagram-shield', { reelMode: !isReelModeEnabled });
+            if (onToggleInstagramReelMode) {
+              onToggleInstagramReelMode();
+            }
+          }}
+        />
+      </NeumorphicBox>
+
+      {/* 2. Force High Video Quality */}
+      <NeumorphicBox depth="low" borderRadius={16} style={styles.settingItem}>
+        <View style={styles.settingLeft}>
+          <View
+            style={[
+              styles.settingIconWrap,
+              { backgroundColor: isHighQualityEnabled ? palette.primary + '20' : palette.surfacePressed },
+            ]}
+          >
+            <Ionicons
+              name="sparkles"
+              size={20}
+              color={isHighQualityEnabled ? palette.primary : palette.textPrimary}
+            />
+          </View>
+          <View style={styles.settingTextGroup}>
+            <Text style={[styles.settingTitle, { color: palette.textPrimary }]}>
+              Always High Quality (1080p / HD)
+            </Text>
+            <Text style={[styles.settingSubtitle, { color: palette.textMuted }]}>
+              {isHighQualityEnabled ? 'Forces highest bitrate and prevents video quality drops' : 'Standard adaptive quality'}
+            </Text>
+          </View>
+        </View>
+        <NeumorphicSwitch
+          value={isHighQualityEnabled}
+          onValueChange={() => {
+            triggerHaptic();
+            updateExtensionSettings('instagram-shield', { forceHighQuality: !isHighQualityEnabled });
+          }}
+        />
+      </NeumorphicBox>
+
+      {/* 3. Hide Reel Description & Captions */}
+      <NeumorphicBox depth="low" borderRadius={16} style={styles.settingItem}>
+        <View style={styles.settingLeft}>
+          <View
+            style={[
+              styles.settingIconWrap,
+              { backgroundColor: isHideDescriptionEnabled ? palette.accent + '20' : palette.surfacePressed },
+            ]}
+          >
+            <Ionicons
+              name="document-text-outline"
+              size={20}
+              color={isHideDescriptionEnabled ? palette.accent : palette.textPrimary}
+            />
+          </View>
+          <View style={styles.settingTextGroup}>
+            <Text style={[styles.settingTitle, { color: palette.textPrimary }]}>
+              Hide Reel Description & Captions
+            </Text>
+            <Text style={[styles.settingSubtitle, { color: palette.textMuted }]}>
+              {isHideDescriptionEnabled ? 'Captions, music info, and hashtags hidden for clean view' : 'Captions shown'}
+            </Text>
+          </View>
+        </View>
+        <NeumorphicSwitch
+          value={isHideDescriptionEnabled}
+          onValueChange={() => {
+            triggerHaptic();
+            updateExtensionSettings('instagram-shield', { hideReelDescription: !isHideDescriptionEnabled });
+          }}
+        />
+      </NeumorphicBox>
+
+      {/* 4. Two-Finger Screen Adjust & Pinch Zoom */}
+      <NeumorphicBox depth="low" borderRadius={16} style={styles.settingItem}>
+        <View style={styles.settingLeft}>
+          <View
+            style={[
+              styles.settingIconWrap,
+              { backgroundColor: isScreenAdjustEnabled ? palette.success + '20' : palette.surfacePressed },
+            ]}
+          >
+            <Ionicons
+              name="scan-outline"
+              size={20}
+              color={isScreenAdjustEnabled ? palette.success : palette.textPrimary}
+            />
+          </View>
+          <View style={styles.settingTextGroup}>
+            <Text style={[styles.settingTitle, { color: palette.textPrimary }]}>
+              Two-Finger Screen Adjust
+            </Text>
+            <Text style={[styles.settingSubtitle, { color: palette.textMuted }]}>
+              {isScreenAdjustEnabled ? 'Pinch to zoom and two-finger tap for Fit vs Fill' : 'Gestures disabled'}
+            </Text>
+          </View>
+        </View>
+        <NeumorphicSwitch
+          value={isScreenAdjustEnabled}
+          onValueChange={() => {
+            triggerHaptic();
+            updateExtensionSettings('instagram-shield', { screenAdjustTwoFinger: !isScreenAdjustEnabled });
+          }}
+        />
+      </NeumorphicBox>
+
+      {/* 5. Auto-Unmute Videos */}
+      <NeumorphicBox depth="low" borderRadius={16} style={styles.settingItem}>
+        <View style={styles.settingLeft}>
+          <View
+            style={[
+              styles.settingIconWrap,
+              { backgroundColor: isUnmuteEnabled ? palette.success + '20' : palette.surfacePressed },
+            ]}
+          >
+            <Ionicons
+              name="volume-high"
+              size={20}
+              color={isUnmuteEnabled ? palette.success : palette.textPrimary}
+            />
+          </View>
+          <View style={styles.settingTextGroup}>
+            <Text style={[styles.settingTitle, { color: palette.textPrimary }]}>
+              Auto-Unmute Instagram Videos
+            </Text>
+            <Text style={[styles.settingSubtitle, { color: palette.textMuted }]}>
+              {isUnmuteEnabled ? 'Videos play sound automatically' : 'Videos muted by default'}
+            </Text>
+          </View>
+        </View>
+        <NeumorphicSwitch
+          value={isUnmuteEnabled}
+          onValueChange={() => {
+            triggerHaptic();
+            updateExtensionSettings('instagram-shield', { unmuteVideos: !isUnmuteEnabled });
+          }}
+        />
+      </NeumorphicBox>
+    </View>
+  );
 
   return (
     <Modal
@@ -126,7 +316,84 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </View>
             </NeumorphicBox>
 
+            {/* When viewing Instagram, show Instagram & Reels settings prominently at the top */}
+            {isInstagram && renderInstagramSection(true)}
+
             <Text style={[styles.sectionHeading, { color: palette.textMuted }]}>
+              YOUTUBE ACCOUNT & SETTINGS
+            </Text>
+
+            {/* YouTube Native Settings & Account */}
+            <Pressable
+              onPress={() => {
+                triggerHaptic();
+                onClose();
+                if (onOpenYouTubeSettings) onOpenYouTubeSettings();
+              }}
+            >
+              <NeumorphicBox depth="low" borderRadius={16} style={styles.settingItem}>
+                <View style={styles.settingLeft}>
+                  <View
+                    style={[
+                      styles.settingIconWrap,
+                      { backgroundColor: palette.primary + '20' },
+                    ]}
+                  >
+                    <Ionicons
+                      name="logo-youtube"
+                      size={20}
+                      color={palette.primary}
+                    />
+                  </View>
+                  <View style={styles.settingTextGroup}>
+                    <Text style={[styles.settingTitle, { color: palette.textPrimary }]}>
+                      YouTube Settings & Account
+                    </Text>
+                    <Text style={[styles.settingSubtitle, { color: palette.textMuted }]}>
+                      Account, video quality, history & preferences
+                    </Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={palette.textMuted} />
+              </NeumorphicBox>
+            </Pressable>
+
+            {/* YouTube Library & History */}
+            <Pressable
+              onPress={() => {
+                triggerHaptic();
+                onClose();
+                if (onOpenYouTubeLibrary) onOpenYouTubeLibrary();
+              }}
+            >
+              <NeumorphicBox depth="low" borderRadius={16} style={styles.settingItem}>
+                <View style={styles.settingLeft}>
+                  <View
+                    style={[
+                      styles.settingIconWrap,
+                      { backgroundColor: palette.accent + '20' },
+                    ]}
+                  >
+                    <Ionicons
+                      name="play-circle-outline"
+                      size={20}
+                      color={palette.accent}
+                    />
+                  </View>
+                  <View style={styles.settingTextGroup}>
+                    <Text style={[styles.settingTitle, { color: palette.textPrimary }]}>
+                      YouTube Library & History
+                    </Text>
+                    <Text style={[styles.settingSubtitle, { color: palette.textMuted }]}>
+                      Playlists, subscriptions & watch history
+                    </Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={palette.textMuted} />
+              </NeumorphicBox>
+            </Pressable>
+
+            <Text style={[styles.sectionHeading, { color: palette.textMuted, marginTop: 14 }]}>
               DISPLAY & PLAYBACK
             </Text>
 
@@ -264,6 +531,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 isActive={isPipActive}
               />
             </NeumorphicBox>
+
+            {/* If not viewing Instagram, show Instagram & Reels section here */}
+            {!isInstagram && renderInstagramSection(false)}
 
             <Text style={[styles.sectionHeading, { color: palette.textMuted, marginTop: 18 }]}>
               WEBAPPS & HUBS

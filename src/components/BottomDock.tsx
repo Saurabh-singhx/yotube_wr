@@ -20,6 +20,8 @@ interface BottomDockProps {
   onGoHome: () => void;
   onOpenSettings: () => void;
   isVideoPlaying?: boolean;
+  isInstagram?: boolean;
+  onInstagramAction?: (action: string) => void;
 }
 
 export const BottomDock: React.FC<BottomDockProps> = ({
@@ -32,12 +34,18 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   onGoHome,
   onOpenSettings,
   isVideoPlaying = false,
+  isInstagram = false,
+  onInstagramAction,
 }) => {
   const { palette } = useTheme();
   const [isManuallyExpanded, setIsManuallyExpanded] = useState(false);
+  const [isInstagramManuallyCollapsed, setIsInstagramManuallyCollapsed] = useState(false);
 
-  // If video is playing and user hasn't explicitly tapped to expand, shrink to mini icon
-  const isCollapsed = isVideoPlaying && !isManuallyExpanded;
+  // On Instagram, show dock by default since Instagram web bottom tabs are replaced by this dock.
+  // During YouTube video playback, default to collapsed unless manually expanded.
+  const isCollapsed = isInstagram
+    ? isInstagramManuallyCollapsed
+    : (isVideoPlaying && !isManuallyExpanded);
 
   const prevPlayingRef = useRef(isVideoPlaying);
   useEffect(() => {
@@ -47,16 +55,16 @@ export const BottomDock: React.FC<BottomDockProps> = ({
     }
   }, [isVideoPlaying]);
 
-  // If manually expanded while video is playing, auto-collapse after 5s of inactivity
+  // If manually expanded while YouTube video is playing, auto-collapse after 5s of inactivity
   useEffect(() => {
-    if (isVideoPlaying && isManuallyExpanded) {
+    if (!isInstagram && isVideoPlaying && isManuallyExpanded) {
       const timer = setTimeout(() => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setIsManuallyExpanded(false);
       }, 5000);
       return () => clearTimeout(timer);
     }
-  }, [isVideoPlaying, isManuallyExpanded]);
+  }, [isVideoPlaying, isInstagram, isManuallyExpanded]);
 
   // Animated spin for reload button when isLoading is active
   const [spinAnim] = useState(() => new Animated.Value(0));
@@ -91,18 +99,29 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   const handleExpand = () => {
     triggerHaptic();
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setIsManuallyExpanded(true);
+    if (isInstagram) {
+      setIsInstagramManuallyCollapsed(false);
+    } else {
+      setIsManuallyExpanded(true);
+    }
   };
 
   const handleCollapse = () => {
     triggerHaptic();
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setIsManuallyExpanded(false);
+    if (isInstagram) {
+      setIsInstagramManuallyCollapsed(true);
+    } else {
+      setIsManuallyExpanded(false);
+    }
   };
 
   if (isCollapsed) {
     return (
-      <View style={styles.outerContainer} pointerEvents="box-none">
+      <View
+        style={isInstagram ? styles.instagramMiniOuterContainer : styles.outerContainer}
+        pointerEvents="box-none"
+      >
         <NeumorphicBox
           depth="high"
           borderRadius={26}
@@ -115,9 +134,9 @@ export const BottomDock: React.FC<BottomDockProps> = ({
             borderRadius={22}
             icon={
               <Ionicons
-                name="chevron-up"
-                size={22}
-                color={palette.primary}
+                name={isInstagram ? 'logo-instagram' : 'chevron-up'}
+                size={isInstagram ? 22 : 22}
+                color={isInstagram ? '#E1306C' : palette.primary}
               />
             }
           />
@@ -126,6 +145,115 @@ export const BottomDock: React.FC<BottomDockProps> = ({
     );
   }
 
+  // 1. Dedicated Instagram Navigation Dock (Replaces in-page Instagram tabs with clean app buttons)
+  if (isInstagram) {
+    return (
+      <View style={styles.outerContainer} pointerEvents="box-none">
+        <NeumorphicBox
+          depth="high"
+          borderRadius={30}
+          style={[styles.instagramDockBox, { backgroundColor: palette.surface }]}
+        >
+          <View style={styles.instagramDockRow}>
+            {/* 1. Home Feed */}
+            <NeumorphicButton
+              onPress={() => {
+                triggerHaptic();
+                onInstagramAction?.('navHome');
+              }}
+              size="sm"
+              style={styles.igDockItem}
+              borderRadius={19}
+              icon={<Ionicons name="home-outline" size={20} color={palette.textPrimary} />}
+            />
+
+            {/* 2. Explore / Search */}
+            <NeumorphicButton
+              onPress={() => {
+                triggerHaptic();
+                onInstagramAction?.('navSearch');
+              }}
+              size="sm"
+              style={styles.igDockItem}
+              borderRadius={19}
+              icon={<Ionicons name="search-outline" size={20} color={palette.textPrimary} />}
+            />
+
+            {/* 3. Reels Tab (Highlighted) */}
+            <NeumorphicButton
+              onPress={() => {
+                triggerHaptic();
+                onInstagramAction?.('navReels');
+              }}
+              size="sm"
+              style={[styles.igDockItem, styles.igReelsActiveItem]}
+              borderRadius={19}
+              icon={<Ionicons name="film" size={20} color="#E1306C" />}
+            />
+
+            {/* 4. Direct / Share Messages */}
+            <NeumorphicButton
+              onPress={() => {
+                triggerHaptic();
+                onInstagramAction?.('navDirect');
+              }}
+              size="sm"
+              style={styles.igDockItem}
+              borderRadius={19}
+              icon={<Ionicons name="paper-plane-outline" size={19} color={palette.textPrimary} />}
+            />
+
+            {/* 5. My Profile */}
+            <NeumorphicButton
+              onPress={() => {
+                triggerHaptic();
+                onInstagramAction?.('navProfile');
+              }}
+              size="sm"
+              style={styles.igDockItem}
+              borderRadius={19}
+              icon={<Ionicons name="person-outline" size={20} color={palette.textPrimary} />}
+            />
+
+            {/* 6. Screen Adjust (Two-Finger / Fit vs Fill Toggle) */}
+            <NeumorphicButton
+              onPress={() => {
+                triggerHaptic();
+                onInstagramAction?.('adjustScreen');
+              }}
+              size="sm"
+              style={styles.igDockItem}
+              borderRadius={19}
+              icon={<Ionicons name="scan-outline" size={19} color={palette.accent} />}
+            />
+
+            {/* 7. Switch Back to YouTube */}
+            <NeumorphicButton
+              onPress={() => {
+                triggerHaptic();
+                onGoHome();
+              }}
+              size="sm"
+              style={styles.igDockItem}
+              borderRadius={19}
+              icon={<Ionicons name="logo-youtube" size={20} color="#FF0000" />}
+            />
+
+            {/* 8. Collapse Dock */}
+            <NeumorphicButton
+              onPress={handleCollapse}
+              size="sm"
+              style={styles.igCollapseItem}
+              borderRadius={17}
+              icon={<Ionicons name="chevron-down" size={18} color={palette.textMuted} />}
+            />
+          </View>
+        </NeumorphicBox>
+      </View>
+    );
+  }
+
+  // 2. Standard YouTube Navigation Dock
   return (
     <View style={styles.outerContainer} pointerEvents="box-none">
       <NeumorphicBox
@@ -266,6 +394,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 100,
   },
+  instagramMiniOuterContainer: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 28 : 20,
+    right: 14,
+    zIndex: 100,
+  },
   miniDockBox: {
     paddingHorizontal: 4,
     paddingVertical: 4,
@@ -289,13 +423,13 @@ const styles = StyleSheet.create({
   },
   dockBoxWithCollapse: {
     minWidth: 340,
-    maxWidth: 395,
+    maxWidth: 410,
   },
   dockRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: 6,
   },
   dockItem: {
     width: 44,
@@ -314,5 +448,33 @@ const styles = StyleSheet.create({
   },
   disabledItem: {
     opacity: 0.38,
+  },
+  // Instagram App Dock Styles
+  instagramDockBox: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 30,
+    minWidth: 335,
+    maxWidth: 375,
+  },
+  instagramDockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 4,
+  },
+  igDockItem: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+  },
+  igReelsActiveItem: {
+    borderWidth: 1.5,
+    borderColor: '#E1306C',
+  },
+  igCollapseItem: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
   },
 });

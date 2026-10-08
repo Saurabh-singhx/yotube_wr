@@ -3,12 +3,14 @@ import { youtubeAdBlocker } from './youtubeAdBlocker';
 import { youtubeDistractionFree } from './youtubeDistractionFree';
 import { youtubeSponsorBlock } from './youtubeSponsorBlock';
 import { youtubeAutoHD } from './youtubeAutoHD';
+import { instagramShield } from './instagramShield';
 
 export const DEFAULT_EXTENSIONS: ExtensionManifest[] = [
   youtubeAdBlocker,
   youtubeAutoHD,
   youtubeDistractionFree,
   youtubeSponsorBlock,
+  instagramShield,
 ];
 
 export const CUSTOM_EXTENSION_TEMPLATE: ExtensionManifest = {
