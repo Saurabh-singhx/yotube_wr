@@ -31,6 +31,7 @@ export interface BuildConfig {
   channel: 'release' | 'standalone';
   enableRemoteSync: boolean;
   configEndpoint: string;
+  fallbackEndpoint: string;
 }
 
 export const BUILD_CONFIG: BuildConfig = {
@@ -38,6 +39,8 @@ export const BUILD_CONFIG: BuildConfig = {
   enableRemoteSync: ${enableRemoteSync},
   configEndpoint:
     'https://raw.githubusercontent.com/Saurabh-singhx/yotube_wr/master/config/app-config.json',
+  fallbackEndpoint:
+    'https://cdn.jsdelivr.net/gh/Saurabh-singhx/yotube_wr@master/config/app-config.json',
 };
 `;
   fs.writeFileSync(BUILD_CONFIG_PATH, content, 'utf8');

@@ -28,7 +28,7 @@ import { triggerHaptic } from './src/utils/haptics';
 import { extractVideoId } from './src/utils/urlHelper';
 import { getZoomRuntimeScript } from './src/utils/zoomScript';
 import { getRemoteControlScript } from './src/utils/mediaSessionScript';
-import { checkAppStatus, ConfigCheckResult } from './src/services/appConfigService';
+import { checkAppStatus, getCachedAppStatus, ConfigCheckResult } from './src/services/appConfigService';
 import { StatusNoticeView } from './src/components/StatusNoticeView';
 
 const MOBILE_USER_AGENT =
@@ -102,9 +102,19 @@ function MainApp() {
   const [statusNotice, setStatusNotice] = useState<ConfigCheckResult | null>(null);
 
   useEffect(() => {
+    // 1. Immediately check persistent storage (cold startup check without network latency)
+    getCachedAppStatus().then((cached) => {
+      if (cached?.isBlocked) {
+        setStatusNotice(cached);
+      }
+    });
+
+    // 2. Perform live network verification
     checkAppStatus().then((result) => {
       if (result.isBlocked) {
         setStatusNotice(result);
+      } else {
+        setStatusNotice(null);
       }
     });
   }, []);
@@ -164,6 +174,15 @@ function MainApp() {
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       const isBackground = nextAppState === 'background' || nextAppState === 'inactive';
+      if (!isBackground) {
+        checkAppStatus().then((result) => {
+          if (result.isBlocked) {
+            setStatusNotice(result);
+          } else {
+            setStatusNotice(null);
+          }
+        });
+      }
       if (webViewRef.current) {
         webViewRef.current.injectJavaScript(`
           (function() {
