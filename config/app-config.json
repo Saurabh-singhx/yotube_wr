@@ -1,0 +1,14 @@
+{
+  "status": "active",
+  "minBuild": 34,
+  "minVersion": "1.7.0",
+  "notice": {
+    "enabled": false,
+    "force": false,
+    "title": "Update Available",
+    "message": "A new version of YouTube_wr is available. Please update to continue using the application.",
+    "actionText": "Download Update",
+    "actionUrl": "https://github.com/Saurabh-singhx/yotube_wr/releases"
+  },
+  "disabledExtensions": []
+}

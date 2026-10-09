@@ -1,6 +1,6 @@
 {
   "name": "youtube_wr",
-  "version": "1.6.5",
+  "version": "1.7.0",
   "main": "index.ts",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -39,6 +39,8 @@
     "version:bump:patch": "node scripts/bump-version.js patch",
     "version:bump:minor": "node scripts/bump-version.js minor",
     "build:apk": "node scripts/build-apk.js",
+    "build:apk:release": "node scripts/build-apk.js --release-only",
+    "build:apk:standalone": "node scripts/build-apk.js --standalone-only",
     "build:apk:bump": "node scripts/build-apk.js --bump=build"
   },
   "jest": {

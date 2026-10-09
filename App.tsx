@@ -28,6 +28,8 @@ import { triggerHaptic } from './src/utils/haptics';
 import { extractVideoId } from './src/utils/urlHelper';
 import { getZoomRuntimeScript } from './src/utils/zoomScript';
 import { getRemoteControlScript } from './src/utils/mediaSessionScript';
+import { checkAppStatus, ConfigCheckResult } from './src/services/appConfigService';
+import { StatusNoticeView } from './src/components/StatusNoticeView';
 
 const MOBILE_USER_AGENT =
   'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
@@ -95,6 +97,17 @@ function MainApp() {
 
   const zenExt = extensions.find((e) => e.id === 'youtube-distraction-free');
   const isZenActive = zenExt?.enabled ?? false;
+
+  // Remote configuration and status check
+  const [statusNotice, setStatusNotice] = useState<ConfigCheckResult | null>(null);
+
+  useEffect(() => {
+    checkAppStatus().then((result) => {
+      if (result.isBlocked) {
+        setStatusNotice(result);
+      }
+    });
+  }, []);
 
   // Allow free rotation so the user can easily watch videos in portrait and landscape
   useEffect(() => {
@@ -500,6 +513,25 @@ function MainApp() {
       handleNavigate(watchUrl);
     }
   };
+
+  if (statusNotice?.isBlocked) {
+    return (
+      <SafeAreaView
+        style={[
+          styles.container,
+          { backgroundColor: palette.background },
+        ]}
+      >
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <StatusNoticeView
+          title={statusNotice.title}
+          message={statusNotice.message}
+          actionText={statusNotice.actionText}
+          actionUrl={statusNotice.actionUrl}
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView
