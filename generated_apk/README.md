@@ -4,9 +4,9 @@ This folder contains the **Standalone Release APK** for `YouTube_wr`.
 The JavaScript bundle (`index.android.bundle`) and Hermes bytecode are **pre-packaged inside the APK**, allowing it to run completely offline without Metro or any USB/Wi-Fi connection to a development computer.
 
 ## Latest Build Information
-- **Version:** `v1.7.1` (Build `35` / `versionCode: 35`)
+- **Version:** `v1.7.2` (Build `36` / `versionCode: 36`)
 - **Build Date:** October 9, 2026
-- **SHA-256 Checksum:** `be21906f104a66715a13f486487f3131e6ccc024530819a0b2f0d841931b791f`
+- **SHA-256 Checksum:** `c2b6e57348e26cc095450558c91b292e45ba4038acb385220909ef128fba8406`
 
 ## Built-in Features
 - **Native Chromium Visibility Spoofing & Explicit Notification Action Routing (v1.6.5)**:
@@ -50,9 +50,9 @@ The JavaScript bundle (`index.android.bundle`) and Hermes bytecode are **pre-pac
 - **Fullscreen & Screen Zoom Customization**: 16:9 Fit, Zoom to Fill, Stretch, fine-tuned stepper, and isolated 2-finger zoom gestures.
 
 ## APK Files
-- `YouTube_wr-v1.7.1-b35.apk` (76.03 MB): Version and build-tagged release binary.
-- `YouTube_wr-v1.7.1.apk` (76.03 MB): Version-tagged release binary.
-- `YouTube_wr-v1.7.1-standalone.apk` (76.03 MB): Offline standalone binary.
+- `YouTube_wr-v1.7.2-b36.apk` (76.03 MB): Version and build-tagged release binary.
+- `YouTube_wr-v1.7.2.apk` (76.03 MB): Version-tagged release binary.
+- `YouTube_wr-v1.7.2-standalone.apk` (76.03 MB): Offline standalone binary.
 - `YouTube_wr-standalone.apk` (76.03 MB): Latest standalone binary.
 - `YouTube_wr.apk` (76.03 MB): Latest stable release binary.
 - `app-release.apk` (76.03 MB): Direct release binary.
@@ -60,6 +60,6 @@ The JavaScript bundle (`index.android.bundle`) and Hermes bytecode are **pre-pac
 ## Installation Instructions
 Install directly onto any Android phone:
 ```bash
-adb install -r generated_apk/YouTube_wr-v1.7.1.apk
+adb install -r generated_apk/YouTube_wr-v1.7.2.apk
 ```
-Or copy `YouTube_wr-v1.7.1.apk` (or `YouTube_wr.apk`) to your phone storage and tap to install!
+Or copy `YouTube_wr-v1.7.2.apk` (or `YouTube_wr.apk`) to your phone storage and tap to install!

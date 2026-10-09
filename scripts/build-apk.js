@@ -38,9 +38,9 @@ export const BUILD_CONFIG: BuildConfig = {
   channel: '${channel}',
   enableRemoteSync: ${enableRemoteSync},
   configEndpoint:
-    'https://raw.githubusercontent.com/Saurabh-singhx/yotube_wr/master/config/app-config.json',
+    'https://gist.githubusercontent.com/Saurabh-singhx/2e6a3e1916b3717325d6794dbed62851/raw/app-config.json',
   fallbackEndpoint:
-    'https://cdn.jsdelivr.net/gh/Saurabh-singhx/yotube_wr@master/config/app-config.json',
+    'https://raw.githubusercontent.com/Saurabh-singhx/yotube_wr/master/config/app-config.json',
 };
 `;
   fs.writeFileSync(BUILD_CONFIG_PATH, content, 'utf8');

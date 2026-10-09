@@ -1,7 +1,7 @@
 {
   "status": "active",
-  "minBuild": 35,
-  "minVersion": "1.7.1",
+  "minBuild": 36,
+  "minVersion": "1.7.2",
   "notice": {
     "enabled": false,
     "force": false,
