@@ -3,11 +3,8 @@ import { formatNavUrl, isLikelyUrl, getYouTubeSearchUrl } from '../../src/utils/
 
 describe('SearchModal & WebApps Hub', () => {
   describe('FEATURED_WEBAPPS Catalog', () => {
-    it('contains all essential webapps including Instagram, X, Reddit, TikTok, Twitch, and YouTube', () => {
+    it('contains all essential webapps including X, Reddit, TikTok, Twitch, and YouTube', () => {
       const ids = FEATURED_WEBAPPS.map((w) => w.id);
-      expect(ids).toContain('instagram');
-      expect(ids).toContain('instagram-dms');
-      expect(ids).toContain('instagram-reels');
       expect(ids).toContain('x');
       expect(ids).toContain('reddit');
       expect(ids).toContain('tiktok');
@@ -33,12 +30,12 @@ describe('SearchModal & WebApps Hub', () => {
 
   describe('Search & Navigation Flow', () => {
     it('handles direct webapp URL selection', () => {
-      const instagram = FEATURED_WEBAPPS.find((w) => w.id === 'instagram');
-      expect(instagram?.url).toBe('https://www.instagram.com');
+      const reddit = FEATURED_WEBAPPS.find((w) => w.id === 'reddit');
+      expect(reddit?.url).toBe('https://www.reddit.com');
 
       const onNavigate = jest.fn();
-      onNavigate(instagram!.url);
-      expect(onNavigate).toHaveBeenCalledWith('https://www.instagram.com');
+      onNavigate(reddit!.url);
+      expect(onNavigate).toHaveBeenCalledWith('https://www.reddit.com');
     });
 
     it('handles direct URL navigation for entered domains', () => {

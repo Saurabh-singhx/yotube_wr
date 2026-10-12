@@ -113,7 +113,7 @@ flowchart TD
   - Zen Mode toggle
   - Dark/Light Theme toggle
   - PiP Miniplayer trigger
-  - WebApps & Browser Hub (Instagram, X, Twitch, TikTok, Reddit)
+  - WebApps & Browser Hub (X, Twitch, TikTok, Reddit)
   - Extensions & AdShield Pro Hub
 
 ---

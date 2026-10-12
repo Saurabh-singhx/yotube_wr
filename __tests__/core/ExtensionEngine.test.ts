@@ -23,13 +23,13 @@ describe('ExtensionEngine', () => {
 
       // Should not match desktop or other domains
       expect(ExtensionEngine.matchesUrl(pattern, 'https://www.youtube.com')).toBe(false);
-      expect(ExtensionEngine.matchesUrl(pattern, 'https://instagram.com')).toBe(false);
+      expect(ExtensionEngine.matchesUrl(pattern, 'https://github.com')).toBe(false);
     });
 
     it('does not match unrelated external websites', () => {
       const pattern = '*://*.youtube.com/*';
 
-      expect(ExtensionEngine.matchesUrl(pattern, 'https://www.instagram.com')).toBe(false);
+      expect(ExtensionEngine.matchesUrl(pattern, 'https://www.github.com')).toBe(false);
       expect(ExtensionEngine.matchesUrl(pattern, 'https://x.com')).toBe(false);
       expect(ExtensionEngine.matchesUrl(pattern, 'https://www.reddit.com')).toBe(false);
       expect(ExtensionEngine.matchesUrl(pattern, 'https://tiktok.com')).toBe(false);
@@ -37,7 +37,7 @@ describe('ExtensionEngine', () => {
     });
 
     it('handles global wildcards like * and <all_urls>', () => {
-      expect(ExtensionEngine.matchesUrl('*', 'https://instagram.com')).toBe(true);
+      expect(ExtensionEngine.matchesUrl('*', 'https://github.com')).toBe(true);
       expect(ExtensionEngine.matchesUrl('<all_urls>', 'https://youtube.com')).toBe(true);
       expect(ExtensionEngine.matchesUrl('', 'https://youtube.com')).toBe(true);
     });
@@ -93,7 +93,7 @@ describe('ExtensionEngine', () => {
     });
 
     it('excludes YouTube-only extensions on non-YouTube sites', () => {
-      const matching = ExtensionEngine.getMatchingExtensions(mockExtensions, 'https://www.instagram.com');
+      const matching = ExtensionEngine.getMatchingExtensions(mockExtensions, 'https://www.reddit.com');
       const ids = matching.map((e) => e.id);
 
       expect(ids).not.toContain('yt-only');

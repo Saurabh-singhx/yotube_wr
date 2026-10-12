@@ -47,6 +47,20 @@ describe('AppConfigService', () => {
     expect(cached).toBeNull();
   });
 
+  it('recognizes activate, enabled, and online as active statuses', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: 'activate',
+        minBuild: APP_BUILD,
+        notice: { enabled: false },
+      }),
+    } as any);
+
+    const result = await checkAppStatus('https://example.com/config.json');
+    expect(result.isBlocked).toBe(false);
+  });
+
   it('blocks and writes to AsyncStorage when status is not active', async () => {
     globalThis.fetch = jest.fn().mockResolvedValue({
       ok: true,

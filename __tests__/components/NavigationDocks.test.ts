@@ -2,22 +2,28 @@ import { DEFAULT_EXTENSIONS } from '../../src/core/extensions/defaultExtensions'
 
 describe('Navigation & Dock Components Logic', () => {
   describe('BottomDock Action Logic', () => {
-    it('triggers core navigation callbacks: Back, Forward, Home, Reload, and Settings', () => {
+    it('triggers core navigation callbacks: Back, Forward, Home, Search, Profile, Reload, and Settings', () => {
       const onGoBack = jest.fn();
       const onGoForward = jest.fn();
       const onGoHome = jest.fn();
+      const onOpenSearch = jest.fn();
+      const onOpenProfile = jest.fn();
       const onReload = jest.fn();
       const onOpenSettings = jest.fn();
 
       onGoBack();
       onGoForward();
       onGoHome();
+      onOpenSearch();
+      onOpenProfile();
       onReload();
       onOpenSettings();
 
       expect(onGoBack).toHaveBeenCalledTimes(1);
       expect(onGoForward).toHaveBeenCalledTimes(1);
       expect(onGoHome).toHaveBeenCalledTimes(1);
+      expect(onOpenSearch).toHaveBeenCalledTimes(1);
+      expect(onOpenProfile).toHaveBeenCalledTimes(1);
       expect(onReload).toHaveBeenCalledTimes(1);
       expect(onOpenSettings).toHaveBeenCalledTimes(1);
     });
@@ -62,27 +68,6 @@ describe('Navigation & Dock Components Logic', () => {
       expect(getIsCollapsed(true, true)).toBe(false);   // Video playing & tapped: manually expanded
       expect(getIsCollapsed(false, true)).toBe(false);  // Video paused after manual expand: fully expanded
     });
-
-    it('triggers Instagram merged actions for Home, Search, Reels, Direct, Profile, and Screen Adjust', () => {
-      const onInstagramAction = jest.fn();
-
-      onInstagramAction('navHome');
-      onInstagramAction('navSearch');
-      onInstagramAction('navReels');
-      onInstagramAction('navDirect');
-      onInstagramAction('navProfile');
-      onInstagramAction('adjustScreen');
-      onInstagramAction('toggleMode');
-
-      expect(onInstagramAction).toHaveBeenCalledTimes(7);
-      expect(onInstagramAction).toHaveBeenCalledWith('navHome');
-      expect(onInstagramAction).toHaveBeenCalledWith('navSearch');
-      expect(onInstagramAction).toHaveBeenCalledWith('navReels');
-      expect(onInstagramAction).toHaveBeenCalledWith('navDirect');
-      expect(onInstagramAction).toHaveBeenCalledWith('navProfile');
-      expect(onInstagramAction).toHaveBeenCalledWith('adjustScreen');
-      expect(onInstagramAction).toHaveBeenCalledWith('toggleMode');
-    });
   });
 
   describe('SettingsModal Action Logic', () => {
@@ -109,7 +94,7 @@ describe('Navigation & Dock Components Logic', () => {
     it('calculates active extensions count accurately', () => {
       const extensions = [...DEFAULT_EXTENSIONS];
       const activeCount = extensions.filter((e) => e.enabled).length;
-      expect(activeCount).toBe(5);
+      expect(activeCount).toBe(4);
     });
   });
 });

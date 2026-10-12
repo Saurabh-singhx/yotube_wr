@@ -8,6 +8,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -26,30 +27,6 @@ interface SearchModalProps {
 }
 
 export const FEATURED_WEBAPPS = [
-  {
-    id: 'instagram',
-    name: 'Instagram',
-    url: 'https://www.instagram.com',
-    icon: 'logo-instagram',
-    color: '#E1306C',
-    category: 'Social',
-  },
-  {
-    id: 'instagram-dms',
-    name: 'Instagram DMs',
-    url: 'https://www.instagram.com/direct/inbox/',
-    icon: 'paper-plane',
-    color: '#C13584',
-    category: 'Social',
-  },
-  {
-    id: 'instagram-reels',
-    name: 'Instagram Reels',
-    url: 'https://www.instagram.com/reels/',
-    icon: 'film-outline',
-    color: '#833AB4',
-    category: 'Video',
-  },
   {
     id: 'x',
     name: 'X (Twitter)',
@@ -91,10 +68,10 @@ export const FEATURED_WEBAPPS = [
     category: 'Video',
   },
   {
-    id: 'youtube-settings',
-    name: 'YouTube Settings',
-    url: 'https://m.youtube.com/account',
-    icon: 'settings-sharp',
+    id: 'youtube-profile',
+    name: 'YouTube Profile & You',
+    url: 'https://m.youtube.com/feed/you',
+    icon: 'person-circle-sharp',
     color: '#E62117',
     category: 'Video',
   },
@@ -153,6 +130,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     const formatted = formatNavUrl(target);
     if (!formatted) return;
 
+    Keyboard.dismiss();
     triggerHaptic();
     onClose();
     onNavigate(formatted);
@@ -161,6 +139,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   const handleSearchYouTube = (query: string) => {
     const text = query.trim();
     if (!text) return;
+    Keyboard.dismiss();
     triggerHaptic();
     onClose();
     onNavigate(getYouTubeSearchUrl(text));
@@ -194,7 +173,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                   WebApps & Browser
                 </Text>
                 <Text style={[styles.subtitle, { color: palette.textMuted }]}>
-                  Access Instagram, Reddit, X or any website
+                  Access Reddit, X, Twitch or any website
                 </Text>
               </View>
             </View>
@@ -233,7 +212,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             <NeumorphicInput
               value={inputVal}
               onChangeText={setInputVal}
-              placeholder="Enter website (e.g. instagram.com) or search..."
+              placeholder="Enter website (e.g. reddit.com) or search..."
               autoFocus
               returnKeyType="go"
               onSubmitEditing={() => handleOpenUrl(inputVal)}

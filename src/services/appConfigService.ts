@@ -37,6 +37,12 @@ const DEFAULT_RESULT: ConfigCheckResult = {
   config: null,
 };
 
+export function isStatusActive(status?: string): boolean {
+  if (!status || typeof status !== 'string') return false;
+  const s = status.toLowerCase().trim();
+  return s === 'active' || s === 'activate' || s === 'activated' || s === 'enabled' || s === 'online';
+}
+
 /**
  * Retrieves previously cached status from persistent storage.
  * Used on cold startup to immediately enforce blocks even before network resolves.
@@ -55,7 +61,7 @@ export async function getCachedAppStatus(): Promise<ConfigCheckResult | null> {
       // If the app was upgraded since cache was stored and now satisfies minBuild with active status, clear it
       if (
         parsed.config &&
-        parsed.config.status === 'active' &&
+        isStatusActive(parsed.config.status) &&
         typeof parsed.config.minBuild === 'number' &&
         APP_BUILD >= parsed.config.minBuild &&
         !parsed.config.notice?.force
@@ -128,7 +134,7 @@ export async function checkAppStatus(
   // 3. If online response received: evaluate and synchronize persistent storage
   if (config) {
     const isStatusBlocked =
-      typeof config.status === 'string' && config.status.toLowerCase() !== 'active';
+      typeof config.status === 'string' && !isStatusActive(config.status);
     const isBuildOutdated = typeof config.minBuild === 'number' && APP_BUILD < config.minBuild;
     const isForceNotice = Boolean(config.notice?.enabled && config.notice?.force);
 

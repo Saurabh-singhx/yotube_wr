@@ -5,6 +5,7 @@ import {
   BackHandler,
   Platform,
   useWindowDimensions,
+  Dimensions,
   NativeModules,
   NativeEventEmitter,
   AppState,
@@ -27,6 +28,7 @@ import { PipPlayer } from './src/components/PipPlayer';
 import { triggerHaptic } from './src/utils/haptics';
 import { extractVideoId } from './src/utils/urlHelper';
 import { getZoomRuntimeScript } from './src/utils/zoomScript';
+import { getYoutubeProfileScript } from './src/utils/youtubeProfileScript';
 import { getRemoteControlScript } from './src/utils/mediaSessionScript';
 import { checkAppStatus, getCachedAppStatus, ConfigCheckResult } from './src/services/appConfigService';
 import { StatusNoticeView } from './src/components/StatusNoticeView';
@@ -42,8 +44,48 @@ function MainApp() {
   const { extensions, handleBridgeMessage, toggleExtension } = useExtensions();
   const { width, height } = useWindowDimensions();
 
-  // Screen orientation tracking (horizontal landscape detection)
-  const isLandscape = width > height;
+  // Screen orientation tracking (hardware physical screen orientation - immune to software keyboard resize)
+  const [isLandscape, setIsLandscape] = useState(() => {
+    const screen = Dimensions.get('screen');
+    return screen.width > screen.height;
+  });
+
+  useEffect(() => {
+    const checkOrientation = () => {
+      const screen = Dimensions.get('screen');
+      setIsLandscape(screen.width > screen.height);
+    };
+
+    // 1. Hardware physical screen dimensions listener (swapped on true rotation, untouched by soft keyboard)
+    const dimSub = Dimensions.addEventListener('change', ({ screen }) => {
+      setIsLandscape(screen.width > screen.height);
+    });
+
+    // 2. Hardware screen orientation sensor changes
+    const orientationSub = ScreenOrientation.addOrientationChangeListener((evt) => {
+      const o = evt.orientationInfo.orientation;
+      const isLand =
+        o === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+        o === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
+      setIsLandscape(isLand);
+    });
+
+    ScreenOrientation.getOrientationAsync()
+      .then((o) => {
+        const isLand =
+          o === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+          o === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
+        setIsLandscape(isLand);
+      })
+      .catch(() => {
+        checkOrientation();
+      });
+
+    return () => {
+      dimSub.remove();
+      orientationSub.remove();
+    };
+  }, []);
 
   const webViewRef = useRef<WebView>(null);
 
@@ -71,14 +113,6 @@ function MainApp() {
 
   const [isDesktopMode, setIsDesktopMode] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
-
-  // Check whether user is viewing Instagram (target URI or active page)
-  const isInstagram = useMemo(() => {
-    return (
-      (typeof currentUrl === 'string' && currentUrl.includes('instagram.com')) ||
-      (typeof activeSourceUri === 'string' && activeSourceUri.includes('instagram.com'))
-    );
-  }, [currentUrl, activeSourceUri]);
 
   // Always use mobile user agent by default for optimal mobile responsive experience
   const effectiveUserAgent = useMemo(() => {
@@ -193,6 +227,9 @@ function MainApp() {
               window.__lastUserGestureTime = 0;
               window.__lastPlayerInteractionTime = 0;
               window.__lastPauseButtonTapTime = 0;
+              if (typeof window.__ytwrPausePreviewVideos === 'function') {
+                window.__ytwrPausePreviewVideos();
+              }
             } else {
               window.__windowHasBlur = false;
               window.__lastBlurTime = 0;
@@ -216,7 +253,7 @@ function MainApp() {
   }, [activeSourceUri]);
 
   // Compile extension scripts (recomputed when extensions, active webapp source, or dark theme change)
-  const targetScriptUrl = isInstagram ? 'https://www.instagram.com' : (activeSourceUri || currentUrl);
+  const targetScriptUrl = activeSourceUri || currentUrl;
 
   const injectedStartScript = useMemo(() => {
     return ExtensionEngine.buildBeforeContentLoadedScript(extensions, targetScriptUrl, isDark);
@@ -224,12 +261,10 @@ function MainApp() {
 
   const injectedEndScript = useMemo(() => {
     const baseScript = ExtensionEngine.buildAfterContentLoadedScript(extensions, targetScriptUrl, isDark);
-    if (isInstagram) {
-      return baseScript;
-    }
     const zoomScript = getZoomRuntimeScript();
-    return `${baseScript}\n${zoomScript}`;
-  }, [extensions, targetScriptUrl, isDark, isInstagram]);
+    const profileScript = getYoutubeProfileScript();
+    return `${baseScript}\n${zoomScript}\n${profileScript}`;
+  }, [extensions, targetScriptUrl, isDark]);
 
   // Fullscreen tracking for in-page YouTube player
   const [isWebFullscreen, setIsWebFullscreen] = useState(false);
@@ -431,7 +466,7 @@ function MainApp() {
   const handleNavigate = (url: string) => {
     triggerHaptic();
 
-    // If navigating to another webapp (e.g. Instagram) while a video was playing:
+    // If navigating to another webapp while a video was playing:
     // Automatically pop the video into floating PiP mode so it keeps playing!
     const activeVid = extractVideoId(currentUrl) || lastVideoIdRef.current;
     const isOtherWebapp = !url.includes('youtube.com');
@@ -552,15 +587,18 @@ function MainApp() {
     );
   }
 
+  // Do not apply safe area insets in fullscreen or landscape modes (full edge-to-edge experience)
+  const isImmersiveFullscreen = isWebFullscreen || isLandscape;
+
   return (
     <SafeAreaView
       style={[
         styles.container,
         { backgroundColor: palette.surface },
       ]}
-      edges={isLandscape ? [] : ['top', 'left', 'right']}
+      edges={isImmersiveFullscreen ? [] : ['top', 'left', 'right']}
     >
-      <StatusBar style={isDark ? 'light' : 'dark'} hidden={isLandscape && isWebFullscreen} />
+      <StatusBar style={isDark ? 'light' : 'dark'} hidden={isImmersiveFullscreen} />
 
       {/* Loading Progress Bar */}
       {isLoading && progress < 1 && (
@@ -636,17 +674,6 @@ function MainApp() {
               const prevUrl = currentUrl;
               setCurrentUrl(navState.url);
 
-              // Auto-restore clean mobile render when leaving Instagram via browser back button
-              const wasInstagram = prevUrl && prevUrl.includes('instagram.com');
-              const nowInstagram = navState.url.includes('instagram.com');
-              if (wasInstagram && !nowInstagram && !activeSourceUri.includes('instagram.com')) {
-                setTimeout(() => {
-                  if (webViewRef.current) {
-                    webViewRef.current.reload();
-                  }
-                }, 100);
-              }
-
               const vid = extractVideoId(navState.url);
               if (vid) {
                 if (vid !== lastVideoIdRef.current) {
@@ -717,15 +744,9 @@ function MainApp() {
           onReload={handleReload}
           onGoHome={handleGoHome}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onOpenSearch={() => setIsSearchModalOpen(true)}
+          onOpenProfile={() => handleNavigate('https://m.youtube.com/feed/you')}
           isVideoPlaying={isVideoPlaying}
-          isInstagram={isInstagram}
-          onInstagramAction={(action) => {
-            if (webViewRef.current) {
-              webViewRef.current.injectJavaScript(
-                `if (window.__INSTAGRAM_SHIELD_ACTIONS__ && window.__INSTAGRAM_SHIELD_ACTIONS__["${action}"]) { window.__INSTAGRAM_SHIELD_ACTIONS__["${action}"](); } true;`
-              );
-            }
-          }}
         />
       )}
 
@@ -741,16 +762,6 @@ function MainApp() {
         onTogglePip={handleTogglePip}
         onOpenExtensions={() => setIsExtensionsModalOpen(true)}
         onOpenWebApps={() => setIsSearchModalOpen(true)}
-        onOpenYouTubeSettings={() => handleNavigate('https://m.youtube.com/account')}
-        onOpenYouTubeLibrary={() => handleNavigate('https://m.youtube.com/feed/you')}
-        isInstagram={isInstagram}
-        onToggleInstagramReelMode={() => {
-          if (webViewRef.current) {
-            webViewRef.current.injectJavaScript(
-              `if (window.__INSTAGRAM_SHIELD_ACTIONS__ && window.__INSTAGRAM_SHIELD_ACTIONS__.toggleMode) { window.__INSTAGRAM_SHIELD_ACTIONS__.toggleMode(); } true;`
-            );
-          }
-        }}
       />
 
       {/* WebApps & Browser Hub Modal */}

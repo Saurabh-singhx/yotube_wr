@@ -84,36 +84,46 @@ export function getZoomRuntimeScript(): string {
     '  opacity: 0 !important;',
     '  pointer-events: none !important;',
     '}',
-    '/* In landscape mode: remove YouTube Mobile topbar header and bottom 20-30% drawer completely */',
-    '@media (orientation: landscape) {',
-    '  ytm-mobile-topbar-renderer,',
-    '  .mobile-topbar-header,',
-    '  .ytm-mobile-topbar-renderer,',
-    '  #header-bar,',
-    '  header.mobile-topbar-header {',
-    '    display: none !important;',
-    '    height: 0 !important;',
-    '    min-height: 0 !important;',
-    '    max-height: 0 !important;',
-    '    visibility: hidden !important;',
-    '    pointer-events: none !important;',
-    '  }',
-    '  /* Eradicate suggested videos drawer & bottom 20-30% peek sheet in landscape */',
-    '  ytm-engagement-panel,',
-    '  .ytm-engagement-panel,',
-    '  .fullscreen-engagement-panel,',
-    '  [visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"],',
-    '  .ytp-drawer,',
-    '  .ytp-suggested-action,',
-    '  ytm-bottom-sheet-renderer,',
-    '  .ytm-bottom-sheet-renderer {',
-    '    display: none !important;',
-    '    visibility: hidden !important;',
-    '    opacity: 0 !important;',
-    '    height: 0 !important;',
-    '    max-height: 0 !important;',
-    '    pointer-events: none !important;',
-    '  }',
+    '/* In fullscreen video mode or landscape watch mode: remove YouTube Mobile topbar header and bottom drawer */',
+    'html[data-ytwr-fullscreen="true"] ytm-mobile-topbar-renderer,',
+    'html[data-ytwr-fullscreen="true"] .mobile-topbar-header,',
+    'html[data-ytwr-fullscreen="true"] .ytm-mobile-topbar-renderer,',
+    'html[data-ytwr-fullscreen="true"] #header-bar,',
+    'html[data-ytwr-fullscreen="true"] header.mobile-topbar-header,',
+    'html[data-ytwr-watch-landscape="true"] ytm-mobile-topbar-renderer,',
+    'html[data-ytwr-watch-landscape="true"] .mobile-topbar-header,',
+    'html[data-ytwr-watch-landscape="true"] .ytm-mobile-topbar-renderer,',
+    'html[data-ytwr-watch-landscape="true"] #header-bar,',
+    'html[data-ytwr-watch-landscape="true"] header.mobile-topbar-header {',
+    '  display: none !important;',
+    '  height: 0 !important;',
+    '  min-height: 0 !important;',
+    '  max-height: 0 !important;',
+    '  visibility: hidden !important;',
+    '  pointer-events: none !important;',
+    '}',
+    'html[data-ytwr-fullscreen="true"] ytm-engagement-panel,',
+    'html[data-ytwr-fullscreen="true"] .ytm-engagement-panel,',
+    'html[data-ytwr-fullscreen="true"] .fullscreen-engagement-panel,',
+    'html[data-ytwr-fullscreen="true"] [visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"],',
+    'html[data-ytwr-fullscreen="true"] .ytp-drawer,',
+    'html[data-ytwr-fullscreen="true"] .ytp-suggested-action,',
+    'html[data-ytwr-fullscreen="true"] ytm-bottom-sheet-renderer,',
+    'html[data-ytwr-fullscreen="true"] .ytm-bottom-sheet-renderer,',
+    'html[data-ytwr-watch-landscape="true"] ytm-engagement-panel,',
+    'html[data-ytwr-watch-landscape="true"] .ytm-engagement-panel,',
+    'html[data-ytwr-watch-landscape="true"] .fullscreen-engagement-panel,',
+    'html[data-ytwr-watch-landscape="true"] [visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"],',
+    'html[data-ytwr-watch-landscape="true"] .ytp-drawer,',
+    'html[data-ytwr-watch-landscape="true"] .ytp-suggested-action,',
+    'html[data-ytwr-watch-landscape="true"] ytm-bottom-sheet-renderer,',
+    'html[data-ytwr-watch-landscape="true"] .ytm-bottom-sheet-renderer {',
+    '  display: none !important;',
+    '  visibility: hidden !important;',
+    '  opacity: 0 !important;',
+    '  height: 0 !important;',
+    '  max-height: 0 !important;',
+    '  pointer-events: none !important;',
     '}'
   ].join('\\n');
   (document.head || document.documentElement).appendChild(style);
@@ -414,9 +424,46 @@ export function getZoomRuntimeScript(): string {
   window.__enterPlayerFullscreen = enterPlayerFullscreen;
   window.__exitPlayerFullscreen = exitPlayerFullscreen;
 
+  function isPhysicalLandscape() {
+    try {
+      if (window.screen && window.screen.orientation && window.screen.orientation.type) {
+        return window.screen.orientation.type.indexOf('landscape') !== -1;
+      }
+      if (typeof window.orientation === 'number') {
+        return Math.abs(window.orientation) === 90;
+      }
+      if (window.screen && window.screen.width && window.screen.height) {
+        return window.screen.width > window.screen.height;
+      }
+    } catch(_) {}
+    return false;
+  }
+
+  function syncLayoutState() {
+    try {
+      var isFS = isPlayerInFullscreen();
+      var isLand = isPhysicalLandscape();
+      var path = (window.location && window.location.pathname) || '';
+      var isWatch = path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 || path.indexOf('/live') !== -1;
+
+      if (isFS) {
+        document.documentElement.setAttribute('data-ytwr-fullscreen', 'true');
+      } else {
+        document.documentElement.removeAttribute('data-ytwr-fullscreen');
+      }
+
+      if (isLand && isWatch) {
+        document.documentElement.setAttribute('data-ytwr-watch-landscape', 'true');
+      } else {
+        document.documentElement.removeAttribute('data-ytwr-watch-landscape');
+      }
+    } catch(_) {}
+  }
+
   // Track Fullscreen state natively via browser fullscreen events, player classes, and button changes
   function handleFullscreenChange() {
     var isFS = isPlayerInFullscreen();
+    syncLayoutState();
     if (window.__RN_EXTENSION_BRIDGE__) {
       window.__RN_EXTENSION_BRIDGE__.send('youtube-fullscreen', 'FULLSCREEN_CHANGE', {
         isFullscreen: isFS
@@ -617,21 +664,30 @@ export function getZoomRuntimeScript(): string {
   // Re-apply on video play, resize, or orientation change
   document.addEventListener('loadeddata', function() {
     applyZoom(currentMode, currentScale, false);
+    syncLayoutState();
   }, true);
 
   window.addEventListener('resize', function() {
+    syncLayoutState();
     setTimeout(function() {
       applyZoom(currentMode, currentScale, false);
+      syncLayoutState();
     }, 150);
   });
 
   window.addEventListener('orientationchange', function() {
+    syncLayoutState();
     setTimeout(function() {
       applyZoom(currentMode, currentScale, false);
+      syncLayoutState();
     }, 150);
   });
 
+  window.addEventListener('yt-navigate-finish', syncLayoutState);
+  window.addEventListener('popstate', syncLayoutState);
+
   // Initial apply
+  syncLayoutState();
   applyZoom('fit', 1.0, false);
 })();
 true;

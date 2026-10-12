@@ -466,6 +466,190 @@ describe('mediaSessionScript', () => {
       // Video must NOT pause!
       expect(isPaused).toBe(false);
     });
+
+    it('identifies feed preview elements across mobile and desktop DOM structures', () => {
+      const { JSDOM } = require('jsdom');
+      const feedDom = new JSDOM(
+        `<!DOCTYPE html>
+        <html>
+        <body>
+          <div class="ytm-media-item">
+            <div class="thumbnail-container">
+              <video id="mobile-feed-video"></video>
+            </div>
+          </div>
+          <div id="inline-preview-player" class="html5-video-player">
+            <video id="desktop-inline-video"></video>
+          </div>
+          <div class="ytd-rich-item-renderer">
+            <video id="desktop-feed-video"></video>
+          </div>
+          <div id="movie_player">
+            <video id="main-watch-video"></video>
+          </div>
+        </body>
+        </html>`,
+        { runScripts: 'dangerously', url: 'https://m.youtube.com' }
+      );
+
+      feedDom.window.eval(getBackgroundPlayScript());
+
+      const mobileFeed = feedDom.window.document.getElementById('mobile-feed-video');
+      const desktopInline = feedDom.window.document.getElementById('desktop-inline-video');
+      const desktopFeed = feedDom.window.document.getElementById('desktop-feed-video');
+      const mainWatch = feedDom.window.document.getElementById('main-watch-video');
+
+      expect(feedDom.window.__ytwrIsPreviewElement(mobileFeed)).toBe(true);
+      expect(feedDom.window.__ytwrIsPreviewElement(desktopInline)).toBe(true);
+      expect(feedDom.window.__ytwrIsPreviewElement(desktopFeed)).toBe(true);
+      expect(feedDom.window.__ytwrIsPreviewElement(mainWatch)).toBe(false);
+
+      expect(feedDom.window.__ytwrIsMainPlayerVideo(mobileFeed)).toBe(false);
+      expect(feedDom.window.__ytwrIsMainPlayerVideo(mainWatch)).toBe(true);
+    });
+
+    it('pauses feed preview videos when __ytwrPausePreviewVideos is called on minimize', () => {
+      const { JSDOM } = require('jsdom');
+      const feedDom = new JSDOM(
+        `<!DOCTYPE html>
+        <html>
+        <body>
+          <div class="ytm-media-item">
+            <video id="preview-video"></video>
+          </div>
+          <div id="movie_player">
+            <video id="main-video"></video>
+          </div>
+        </body>
+        </html>`,
+        { runScripts: 'dangerously', url: 'https://m.youtube.com' }
+      );
+
+      feedDom.window.eval(getBackgroundPlayScript());
+
+      const previewVideo = feedDom.window.document.getElementById('preview-video');
+      const mainVideo = feedDom.window.document.getElementById('main-video');
+
+      let previewPaused = false;
+      let mainPaused = false;
+
+      previewVideo.pause = () => { previewPaused = true; };
+      mainVideo.pause = () => { mainPaused = true; };
+
+      feedDom.window.__ytwrPausePreviewVideos();
+
+      expect(previewPaused).toBe(true);
+      expect(mainPaused).toBe(false);
+    });
+
+    it('rejects play() on feed preview videos when app is in background', async () => {
+      const { JSDOM } = require('jsdom');
+      const feedDom = new JSDOM(
+        `<!DOCTYPE html>
+        <html>
+        <body>
+          <div class="ytm-media-item">
+            <video id="preview-video"></video>
+          </div>
+        </body>
+        </html>`,
+        { runScripts: 'dangerously', url: 'https://m.youtube.com' }
+      );
+
+      feedDom.window.HTMLMediaElement.prototype.pause = () => {};
+      feedDom.window.eval(getBackgroundPlayScript());
+      feedDom.window.__isAppInBackground = true;
+
+      const previewVideo = feedDom.window.document.getElementById('preview-video');
+      await expect(previewVideo.play()).rejects.toThrow('Feed preview playback disabled in background');
+    });
+
+    it('does not proxy IntersectionObserver for feed preview elements', () => {
+      const { JSDOM } = require('jsdom');
+      const feedDom = new JSDOM(
+        `<!DOCTYPE html>
+        <html>
+        <body>
+          <div class="ytm-media-item">
+            <video id="preview-video"></video>
+          </div>
+        </body>
+        </html>`,
+        { runScripts: 'dangerously', url: 'https://m.youtube.com' }
+      );
+
+      let capturedEntries: any[] = [];
+      feedDom.window.IntersectionObserver = class MockIntersectionObserver {
+        private cb: any;
+        constructor(callback: any) {
+          this.cb = callback;
+        }
+        observe(target: any) {
+          this.cb([{ target, isIntersecting: false, intersectionRatio: 0 }]);
+        }
+        unobserve() {}
+        disconnect() {}
+      };
+
+      feedDom.window.eval(getBackgroundPlayScript());
+
+      const observer = new feedDom.window.IntersectionObserver((entries: any[]) => {
+        capturedEntries = entries;
+      });
+      const previewVideo = feedDom.window.document.getElementById('preview-video');
+      observer.observe(previewVideo);
+
+      expect(capturedEntries.length).toBe(1);
+      // For preview videos, IntersectionObserver is NOT forced to true
+      expect(capturedEntries[0].isIntersecting).toBe(false);
+      expect(capturedEntries[0].intersectionRatio).toBe(0);
+    });
+
+    it('preserves background playback for main player while miniplayer is docked on home feed', () => {
+      const { JSDOM } = require('jsdom');
+      const miniDom = new JSDOM(
+        `<!DOCTYPE html>
+        <html>
+        <body>
+          <!-- Miniplayer docked at bottom of screen while on home feed -->
+          <ytm-watch class="watch-page--mini">
+            <div id="player-container-id">
+              <video id="mini-music-video" class="video-stream"></video>
+            </div>
+          </ytm-watch>
+          <!-- Auto-playing preview video on the home feed -->
+          <div class="ytm-media-item">
+            <video id="feed-preview-video"></video>
+          </div>
+        </body>
+        </html>`,
+        { runScripts: 'dangerously', url: 'https://m.youtube.com' }
+      );
+
+      miniDom.window.eval(getBackgroundPlayScript());
+
+      const musicVideo = miniDom.window.document.getElementById('mini-music-video');
+      const feedPreview = miniDom.window.document.getElementById('feed-preview-video');
+
+      // Music video in miniplayer is recognized as main player
+      expect(miniDom.window.__ytwrIsMainPlayerVideo(musicVideo)).toBe(true);
+      expect(miniDom.window.__ytwrIsPreviewElement(musicVideo)).toBe(false);
+
+      // Feed preview is recognized as preview
+      expect(miniDom.window.__ytwrIsPreviewElement(feedPreview)).toBe(true);
+      expect(miniDom.window.__ytwrIsMainPlayerVideo(feedPreview)).toBe(false);
+
+      // When app minimizes:
+      let feedPaused = false;
+      let musicPaused = false;
+      feedPreview.pause = () => { feedPaused = true; };
+      musicVideo.pause = () => { musicPaused = true; };
+
+      miniDom.window.__ytwrPausePreviewVideos();
+
+      expect(feedPaused).toBe(true);
+      expect(musicPaused).toBe(false);
+    });
   });
 });
 

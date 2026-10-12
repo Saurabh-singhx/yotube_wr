@@ -22,6 +22,41 @@ class MainActivity : ReactActivity() {
   companion object {
     var instance: WeakReference<MainActivity>? = null
 
+    val BACKGROUND_LOCK_SCRIPT = """
+        (function(){
+            window.__isAppInBackground = true;
+            window.__windowHasBlur = true;
+            window.__lastBlurTime = Date.now();
+            window.__lastUserGestureTime = 0;
+            window.__lastPlayerInteractionTime = 0;
+            window.__lastPauseButtonTapTime = 0;
+            if (typeof window.__ytwrPausePreviewVideos === 'function') {
+                window.__ytwrPausePreviewVideos();
+            }
+            var isPrev = function(el) {
+                if (!el) return false;
+                if (typeof window.__ytwrIsPreviewElement === 'function') return window.__ytwrIsPreviewElement(el);
+                return !!(el.closest && el.closest('.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-video-renderer, ytd-rich-grid-media, ytd-inline-preview-renderer, #inline-preview-player, #inline-player, .video-preview, .feed-item-preview, .thumbnail-container'));
+            };
+            var videos = document.querySelectorAll('video');
+            var mainVideo = null;
+            for (var i = 0; i < videos.length; i++) {
+                if (!isPrev(videos[i])) {
+                    mainVideo = videos[i];
+                    break;
+                } else {
+                    try { videos[i].pause(); } catch(_) {}
+                }
+            }
+            var p = document.getElementById('movie_player');
+            if (p && p.id === 'inline-preview-player') p = null;
+            if (mainVideo && !window.__userWantsPaused) {
+                mainVideo.play().catch(function(){});
+                if (p && typeof p.playVideo === 'function') p.playVideo();
+            }
+        })(); true;
+    """.trimIndent()
+
     fun forceWebViewVisible(webView: WebView?) {
       if (webView == null) return
       try {
@@ -76,21 +111,25 @@ class MainActivity : ReactActivity() {
               var videos = document.querySelectorAll('video');
               for (var i = 0; i < videos.length; i++) {
                 var v = videos[i];
-                var isPreview = !!(v.closest && v.closest(
-                  '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
-                  'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
-                  '.video-preview, .feed-item-preview'
-                ));
+                var isPreview = (typeof window.__ytwrIsPreviewElement === 'function') ?
+                  window.__ytwrIsPreviewElement(v) :
+                  !!(v.closest && v.closest(
+                    '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
+                    'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
+                    '.video-preview, .feed-item-preview, #inline-preview-player, #inline-player'
+                  ));
                 if (!isPreview) return v;
               }
-              return document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream, video');
+              return document.querySelector('ytm-watch video, ytd-watch-flexy video, #movie_player:not(#inline-preview-player) video, #player video');
             }
 
             function getTargetPlayer() {
-              return document.getElementById('movie_player') ||
-                     document.querySelector('.html5-video-player') ||
+              var p = document.getElementById('movie_player') ||
+                     document.querySelector('ytm-watch .html5-video-player') ||
                      document.getElementById('player') ||
                      document.querySelector('.video-player');
+              if (p && p.id === 'inline-preview-player') return null;
+              return p;
             }
 
             var video = getTargetVideo();
@@ -291,10 +330,7 @@ class MainActivity : ReactActivity() {
           val webView = findWebView(window.decorView)
           forceWebViewVisible(webView)
           webView?.resumeTimers()
-          webView?.evaluateJavascript(
-              "(function(){ window.__isAppInBackground = true; window.__windowHasBlur = true; window.__lastBlurTime = Date.now(); window.__lastUserGestureTime = 0; window.__lastPlayerInteractionTime = 0; window.__lastPauseButtonTapTime = 0; var v = document.querySelector('video'); var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player'); if (v && !window.__userWantsPaused) { v.play().catch(function(){}); if (p && typeof p.playVideo === 'function') p.playVideo(); } })(); true;",
-              null
-          )
+          webView?.evaluateJavascript(BACKGROUND_LOCK_SCRIPT, null)
       } catch (_: Exception) {}
   }
 
@@ -308,10 +344,7 @@ class MainActivity : ReactActivity() {
           if (!hasFocus) {
               forceWebViewVisible(webView)
               webView?.resumeTimers()
-              webView?.evaluateJavascript(
-                  "(function(){ window.__isAppInBackground = true; window.__windowHasBlur = true; window.__lastBlurTime = Date.now(); window.__lastUserGestureTime = 0; window.__lastPlayerInteractionTime = 0; window.__lastPauseButtonTapTime = 0; var v = document.querySelector('video'); var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player'); if (v && !window.__userWantsPaused) { v.play().catch(function(){}); if (p && typeof p.playVideo === 'function') p.playVideo(); } })(); true;",
-                  null
-              )
+              webView?.evaluateJavascript(BACKGROUND_LOCK_SCRIPT, null)
           } else {
               webView?.resumeTimers()
               webView?.evaluateJavascript(
@@ -328,10 +361,7 @@ class MainActivity : ReactActivity() {
           val webView = findWebView(window.decorView)
           forceWebViewVisible(webView)
           webView?.resumeTimers()
-          webView?.evaluateJavascript(
-              "(function(){ window.__isAppInBackground = true; window.__windowHasBlur = true; window.__lastBlurTime = Date.now(); window.__lastUserGestureTime = 0; window.__lastPlayerInteractionTime = 0; window.__lastPauseButtonTapTime = 0; var v = document.querySelector('video'); var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player'); if (v && !window.__userWantsPaused) { v.play().catch(function(){}); if (p && typeof p.playVideo === 'function') p.playVideo(); } })(); true;",
-              null
-          )
+          webView?.evaluateJavascript(BACKGROUND_LOCK_SCRIPT, null)
       } catch (_: Exception) {}
   }
 
@@ -341,10 +371,7 @@ class MainActivity : ReactActivity() {
           val webView = findWebView(window.decorView)
           forceWebViewVisible(webView)
           webView?.resumeTimers()
-          webView?.evaluateJavascript(
-              "(function(){ window.__isAppInBackground = true; window.__windowHasBlur = true; window.__lastBlurTime = Date.now(); window.__lastPauseButtonTapTime = 0; var v = document.querySelector('video'); var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player'); if (v && !window.__userWantsPaused) { v.play().catch(function(){}); if (p && typeof p.playVideo === 'function') p.playVideo(); } })(); true;",
-              null
-          )
+          webView?.evaluateJavascript(BACKGROUND_LOCK_SCRIPT, null)
       } catch (_: Exception) {}
   }
 

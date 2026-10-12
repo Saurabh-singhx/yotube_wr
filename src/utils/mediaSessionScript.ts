@@ -60,6 +60,9 @@ export function getBackgroundPlayScript(): string {
         var onCaptureBlur = function(e) {
           window.__windowHasBlur = true;
           window.__lastBlurTime = Date.now();
+          if (typeof window.__ytwrPausePreviewVideos === 'function') {
+            window.__ytwrPausePreviewVideos();
+          }
           if (e) {
             try { e.stopImmediatePropagation(); } catch(_) {}
             try { e.stopPropagation(); } catch(_) {}
@@ -129,6 +132,87 @@ export function getBackgroundPlayScript(): string {
           document.hasFocus = function() { return true; };
         } catch(e) {}
 
+        // 5.0. Feed Preview vs Main Player Identification Helpers
+        window.__ytwrIsPreviewElement = function(target) {
+          if (!target) return false;
+          try {
+            var el = (target.nodeType === 1) ? target : target.parentElement;
+            if (!el) return false;
+
+            // Direct preview element classes and IDs (mobile & desktop)
+            if (el.closest && el.closest(
+              '#inline-preview-player, #inline-player, ytd-inline-preview-renderer, ' +
+              'ytm-inline-preview-renderer, ytd-video-preview, ytm-video-preview, ' +
+              '.inline-preview, .video-preview, .feed-item-preview, [element-type="inline_preview"], ' +
+              '.inline-player-container, .thumbnail-container, ytd-thumbnail, .video-thumbnail-container'
+            )) {
+              return true;
+            }
+
+            // Feed card item containers (home, subscriptions, search, channels, library)
+            var feedItem = el.closest && el.closest(
+              'ytm-media-item, ytm-playlist-media-item, ytd-rich-item-renderer, ' +
+              'ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-video-renderer, ' +
+              'ytd-rich-grid-media, ytm-rich-item-renderer, ytm-compact-video-renderer, ' +
+              'ytm-reel-shelf-renderer, ytm-shorts-shelf-renderer, ytd-reel-shelf-renderer'
+            );
+            if (feedItem) {
+              var watchParent = el.closest && el.closest('ytm-watch, ytd-watch-flexy');
+              if (!watchParent || (feedItem.closest && feedItem.closest('ytm-item-section-renderer, #related, ytm-compact-video-renderer, ytd-compact-video-renderer'))) {
+                return true;
+              }
+            }
+
+            // Route check: If current page is NOT a watch/shorts/live page,
+            // any video outside active watch wrapper, miniplayer, or main movie_player is a feed preview!
+            var path = (window.location && window.location.pathname) || '';
+            var isWatchRoute = path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 ||
+                               path.indexOf('/live') !== -1 || path.indexOf('/embed') !== -1;
+            if (!isWatchRoute) {
+              var isWatchOrMini = el.closest && el.closest('ytm-watch, ytd-watch-flexy, ytd-miniplayer, .watch-page--mini, #movie_player:not(#inline-preview-player)');
+              if (!isWatchOrMini) {
+                return true;
+              }
+            }
+          } catch(_) {}
+          return false;
+        };
+
+        window.__ytwrIsMainPlayerVideo = function(video) {
+          if (!video) return false;
+          try {
+            if (window.__ytwrIsPreviewElement(video)) return false;
+
+            var watchContainer = video.closest && video.closest(
+              'ytm-watch, ytd-watch-flexy, ytd-miniplayer, .watch-page--mini, #player-container-id, #player, #movie_player'
+            );
+            if (watchContainer) {
+              var playerEl = video.closest('#inline-preview-player');
+              if (playerEl) return false;
+              return true;
+            }
+
+            var path = (window.location && window.location.pathname) || '';
+            return path.indexOf('/watch') !== -1 || path.indexOf('/embed') !== -1 ||
+                   path.indexOf('/live') !== -1 || path.indexOf('/shorts') !== -1;
+          } catch(_) {}
+          return false;
+        };
+
+        window.__ytwrPausePreviewVideos = function() {
+          try {
+            var videos = document.querySelectorAll('video');
+            for (var i = 0; i < videos.length; i++) {
+              var v = videos[i];
+              if (window.__ytwrIsPreviewElement(v)) {
+                try {
+                  v.pause();
+                } catch(_) {}
+              }
+            }
+          } catch(_) {}
+        };
+
         // 5.1. Proxy IntersectionObserver to shield main player from offscreen/minimized auto-pause
         try {
           var OrigIntersectionObserver = window.IntersectionObserver;
@@ -138,10 +222,10 @@ export function getBackgroundPlayScript(): string {
                 var safeEntries = entries.map(function(entry) {
                   var isPlayerTarget = false;
                   try {
-                    if (entry.target) {
+                    if (entry.target && !window.__ytwrIsPreviewElement(entry.target)) {
                       var t = entry.target;
-                      if (t.tagName === 'VIDEO' ||
-                          (t.closest && t.closest('#movie_player, .html5-video-player, #player, .player-container, #player-container-id, .video-player, ytm-custom-control, ytm-mobile-player-overlay-renderer, #player-control-overlay, .player-controls-background, ytm-watch'))) {
+                      if (window.__ytwrIsMainPlayerVideo(t) ||
+                          (t.closest && t.closest('#movie_player:not(#inline-preview-player), ytm-watch, ytd-watch-flexy, #player-container-id, .player-container, #player'))) {
                         isPlayerTarget = true;
                       }
                     }
@@ -260,6 +344,11 @@ export function getBackgroundPlayScript(): string {
         try {
           var origMediaPlay = HTMLMediaElement.prototype.play;
           HTMLMediaElement.prototype.play = function() {
+            // Prohibit feed preview videos from auto-playing while app is in background
+            if (window.__isAppInBackground === true && window.__ytwrIsPreviewElement && window.__ytwrIsPreviewElement(this)) {
+              try { origMediaPause.apply(this); } catch(_) {}
+              return Promise.reject(new Error('Feed preview playback disabled in background'));
+            }
             window.__userWantsPaused = false;
             window.__isRemotePlayCommand = false;
             return origMediaPlay.apply(this, arguments);
@@ -280,8 +369,8 @@ export function getBackgroundPlayScript(): string {
               return origMediaPause.apply(this, arguments);
             }
 
-            // 3. Thumbnail preview videos (feed previews, playlist previews) must pause freely
-            var isPreviewEl = !!(this.closest && this.closest(
+            // 3. Thumbnail / feed preview videos must pause freely
+            var isPreviewEl = window.__ytwrIsPreviewElement ? window.__ytwrIsPreviewElement(this) : !!(this.closest && this.closest(
               '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
               'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
               '.video-preview, .feed-item-preview'
@@ -507,21 +596,22 @@ export function getMediaObserverScript(): string {
 
       function isMainPlayerVideo(video) {
         if (!video) return false;
-        var isPreview = !!(video.closest && video.closest(
-          '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
-          'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
-          '.video-preview, .feed-item-preview'
-        ));
+        if (typeof window.__ytwrIsMainPlayerVideo === 'function') {
+          return window.__ytwrIsMainPlayerVideo(video);
+        }
+        var isPreview = (typeof window.__ytwrIsPreviewElement === 'function') ?
+          window.__ytwrIsPreviewElement(video) :
+          !!(video.closest && video.closest(
+            '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
+            'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
+            '.video-preview, .feed-item-preview'
+          ));
         if (isPreview) return false;
 
         var isPlayerContainer = !!(video.closest && video.closest(
-          '#movie_player, .html5-video-player, #player, .player-container, #player-container-id, ' +
-          '.video-player, ytm-custom-control, ytm-mobile-player-overlay-renderer, ytm-watch'
+          '#movie_player:not(#inline-preview-player), ytm-watch, ytd-watch-flexy, ytd-miniplayer, .watch-page--mini, #player, .player-container, #player-container-id, .video-player'
         ));
         if (isPlayerContainer) return true;
-
-        var isMainVideoEl = video.classList && (video.classList.contains('video-stream') || video.classList.contains('html5-main-video'));
-        if (isMainVideoEl) return true;
 
         var path = window.location.pathname || '';
         return path.indexOf('/watch') !== -1 || path.indexOf('/embed') !== -1 || path.indexOf('/live') !== -1 || path.indexOf('/shorts') !== -1;
@@ -617,7 +707,7 @@ export function getMediaObserverScript(): string {
       } catch(e) {}
 
       // YouTube SPA navigation listener
-      window.addEventListener('yt-navigate-finish', function() {
+      var handleNavChange = function() {
         window.__userWantsPaused = false;
         setTimeout(function() {
           var v = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream, video');
@@ -632,7 +722,9 @@ export function getMediaObserverScript(): string {
             }
           }
         }, 600);
-      });
+      };
+      window.addEventListener('yt-navigate-finish', handleNavChange);
+      window.addEventListener('popstate', handleNavChange);
 
       // Background Media Session Sync: Periodically ensure playing media state stays synchronized with native service
       setInterval(function() {
@@ -656,21 +748,25 @@ export function getRemoteControlScript(action: string, position?: number): strin
           var videos = document.querySelectorAll('video');
           for (var i = 0; i < videos.length; i++) {
             var v = videos[i];
-            var isPreview = !!(v.closest && v.closest(
-              '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
-              'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
-              '.video-preview, .feed-item-preview'
-            ));
-            if (!isPreview) return v;
+            var isPrev = (typeof window.__ytwrIsPreviewElement === 'function') ?
+              window.__ytwrIsPreviewElement(v) :
+              !!(v.closest && v.closest(
+                '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
+                'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
+                '.video-preview, .feed-item-preview, #inline-preview-player, #inline-player'
+              ));
+            if (!isPrev) return v;
           }
-          return document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream, video');
+          return document.querySelector('ytm-watch video, ytd-watch-flexy video, #movie_player:not(#inline-preview-player) video, #player video');
         }
 
         function getTargetPlayer() {
-          return document.getElementById('movie_player') ||
-                 document.querySelector('.html5-video-player') ||
+          var p = document.getElementById('movie_player') ||
+                 document.querySelector('ytm-watch .html5-video-player') ||
                  document.getElementById('player') ||
                  document.querySelector('.video-player');
+          if (p && p.id === 'inline-preview-player') return null;
+          return p;
         }
 
         var video = getTargetVideo();

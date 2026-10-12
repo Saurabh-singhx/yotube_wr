@@ -61,4 +61,13 @@ describe('zoomScript utility', () => {
     expect(script).toContain('function enterPlayerFullscreen()');
     expect(script).toContain('function exitPlayerFullscreen()');
   });
+
+  it('avoids broad @media (orientation: landscape) and uses targeted fullscreen and watch landscape selectors', () => {
+    const script = getZoomRuntimeScript();
+    expect(script).not.toContain('@media (orientation: landscape)');
+    expect(script).toContain('html[data-ytwr-fullscreen="true"] ytm-mobile-topbar-renderer');
+    expect(script).toContain('html[data-ytwr-watch-landscape="true"] ytm-mobile-topbar-renderer');
+    expect(script).toContain('function isPhysicalLandscape()');
+    expect(script).toContain('function syncLayoutState()');
+  });
 });

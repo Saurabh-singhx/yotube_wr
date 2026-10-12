@@ -40,26 +40,29 @@ The JavaScript bundle (`index.android.bundle`) and Hermes bytecode are **pre-pac
   - De-duplicated remote actions prevent double-toggle oscillations.
   - Full transport controls in notification drawer and lock screen: Play/Pause, Rewind 10s, Fast-Forward 10s, Next Track, Previous Track.
   - Back button minimization: Keeps background playback alive without killing the app.
-- **Multi-Platform WebApps Hub & Instagram Shield**:
-  - High-DPI 1080p video profile spoofing (`ig_pr=3`, `ig_vw=1080`, `ig_vh=1920`).
-  - Fluid reel vertical scrolling and gesture handling without viewport zoom destruction.
-  - Non-colliding floating dock button to keep external webapp navigation unobstructed.
+- **Multi-Platform WebApps Hub**:
+  - Direct quick-access to Reddit, X, Twitch, TikTok, SoundCloud, and custom websites.
   - Optional Desktop Mode toggle with desktop User-Agent.
 - **Auto HD Quality Lock**: Enforces 1080p / 4K resolution across mobile and desktop player containers without interfering with startup buffering.
 - **Zen Mode (Distraction-Free)**: Suppresses Shorts shelves, comment sections, related suggestions, and end screens.
 - **Fullscreen & Screen Zoom Customization**: 16:9 Fit, Zoom to Fill, Stretch, fine-tuned stepper, and isolated 2-finger zoom gestures.
 
 ## APK Files
-- `YouTube_wr-v1.7.2-b36.apk` (76.03 MB): Version and build-tagged release binary.
-- `YouTube_wr-v1.7.2.apk` (76.03 MB): Version-tagged release binary.
-- `YouTube_wr-v1.7.2-standalone.apk` (76.03 MB): Offline standalone binary.
-- `YouTube_wr-standalone.apk` (76.03 MB): Latest standalone binary.
-- `YouTube_wr.apk` (76.03 MB): Latest stable release binary.
-- `app-release.apk` (76.03 MB): Direct release binary.
+- `YouTube_wr-v1.8.3-b44.apk` (76.01 MB): Current version and build-tagged release binary.
+- `YouTube_wr-v1.8.3.apk` (76.01 MB): Current version-tagged release binary.
+- `YouTube_wr-v1.8.3-b44-standalone.apk` (76.01 MB): Current offline standalone binary.
+- `YouTube_wr-v1.8.3-standalone.apk` (76.01 MB): Current offline standalone binary.
+- `YouTube_wr-v1.8.0-b41.apk` (76.05 MB): Previous version and build-tagged release binary.
+- `YouTube_wr-v1.8.0.apk` (76.05 MB): Previous version-tagged release binary.
+- `YouTube_wr-v1.8.0-b41-standalone.apk` (76.05 MB): Previous offline standalone binary.
+- `YouTube_wr-v1.8.0-standalone.apk` (76.05 MB): Previous offline standalone binary.
+- `YouTube_wr-standalone.apk` (76.01 MB): Latest standalone binary.
+- `YouTube_wr.apk` (76.01 MB): Latest stable release binary.
+- `app-release.apk` (76.01 MB): Direct release binary.
 
 ## Installation Instructions
 Install directly onto any Android phone:
 ```bash
-adb install -r generated_apk/YouTube_wr-v1.7.2.apk
+adb install -r generated_apk/YouTube_wr-v1.8.3.apk
 ```
-Or copy `YouTube_wr-v1.7.2.apk` (or `YouTube_wr.apk`) to your phone storage and tap to install!
+Or copy `YouTube_wr-v1.8.3.apk` (or `YouTube_wr.apk`) to your phone storage and tap to install!

@@ -360,7 +360,7 @@ Even after resolving stale gesture timestamps and remote script duplication, phy
 - [x] Second minimize without user interaction: audio continues playing seamlessly, notification controls remain steady.
 - [x] Notification play/pause toggles correctly.
 - [x] Seeking, skipping, and thumbnail clicks function without regression.
-- [x] Instagram webapp and other domains are completely unaffected.
+- [x] External webapps and other domains are completely unaffected.
 
 ---
 
@@ -551,6 +551,41 @@ Because JavaScript suppressed `video.pause()` while Chromium stopped audio at th
 If aggressive OEM battery managers (e.g., Xiaomi MIUI, Samsung OneUI aggressive app sleep) freeze the Chromium process entirely:
 - **Fallback A (Auto-PiP Mode)**: Transition to Android native `enterPictureInPictureMode(params)` in `onUserLeaveHint()`. Supported natively by Android 8.0+ with zero hacks; floating mini-player seamlessly continues audio and video.
 - **Fallback B (Native ExoPlayer Engine)**: Extract the YouTube audio stream URL and delegate background playback to Android native `ExoPlayer` in `MediaPlaybackService` (the NewPipe / ReVanced architecture).
+
+---
+
+## 13. Feed Preview Background Auto-Play Eradication & Main Player Isolation (v1.7.3)
+
+### 13.1 Problem Description & Failure Mode
+When browsing the YouTube feed (e.g. Home `/`, Subscriptions `/feed/subscriptions`, or Search `/results`), YouTube auto-plays silent/muted inline preview videos when cards scroll into the viewport.
+When the user minimized or switched away from the application:
+- **The Defect**: The feed preview video continued playing audio in the background!
+- **User Expectation**: Background audio playback should strictly apply to intentional music/video viewing (`/watch`, `/shorts`, `/live`, or active miniplayer). Feed previews must halt immediately when the application is minimized or backgrounded, without regressing or interrupting genuine background playback.
+
+### 13.2 Root-Cause Forensic Trace
+1. **Unconditional `v.play()` in Android Minimization Lifecycle**:
+   - In `MainActivity.kt` (`onUserLeaveHint`, `onWindowFocusChanged(false)`, `onPause`, `onStop`), the wake-up script executed `var v = document.querySelector('video'); v.play();`. On feed views, `v` resolved to the preview video element, forcing it into active playback upon minimizing.
+2. **False Classification in `isMainPlayerVideo`**:
+   - On YouTube mobile and desktop, inline preview videos share the `html5-main-video` and `video-stream` CSS classes, and preview players can possess `.html5-video-player`. Because `isMainPlayerVideo` fell back to `video.classList.contains('video-stream')`, feed preview videos were falsely classified as main players, triggering `unmuteAudio(video)` and `attachToVideo(video)`.
+3. **`IntersectionObserver` Player Shield Pollution**:
+   - The `IntersectionObserver` proxy previously checked `t.tagName === 'VIDEO'` and forced `isIntersecting: true`, preventing YouTube's feed controller from detecting that the card was hidden or minimized.
+4. **Visibility Spoofing Kept Feeds Running**:
+   - Because `document.visibilityState` is spoofed to `'visible'` for background audio, YouTube never sent internal feed visibility pause signals to preview videos unless specifically instructed.
+
+### 13.3 Architectural Solution
+1. **Multi-Tier Feed Preview Detector (`window.__ytwrIsPreviewElement`)**:
+   - Detects preview containers across both mobile and desktop architectures (`#inline-preview-player`, `ytd-inline-preview-renderer`, `ytm-media-item`, `ytd-rich-item-renderer`, `thumbnail-container`, etc.).
+   - Employs a non-watch route check: any video outside active watch wrappers (`ytm-watch`, `ytd-watch-flexy`, `#movie_player`) or miniplayer (`ytd-miniplayer`, `.watch-page--mini`) on non-watch routes is recognized as an inline feed preview.
+2. **Instant Feed Preview Pause on Backgrounding (`window.__ytwrPausePreviewVideos`)**:
+   - Invoked across `onCaptureBlur`, `MainActivity.onUserLeaveHint()`, `onWindowFocusChanged(false)`, `onPause()`, `onStop()`, and React Native `AppState.change`.
+   - Immediately calls `.pause()` on all active preview video elements upon minimization.
+3. **Background Feed Playback Prohibition in `HTMLMediaElement.prototype.play`**:
+   - Prohibits preview elements from initiating or resuming playback when `window.__isAppInBackground === true`.
+4. **Selective Native Wake-Up in `MainActivity.kt`**:
+   - Filters candidate videos with `!isPrev(videos[i])`. Never calls `.play()` if only feed preview elements exist.
+5. **Main Player Isolation**:
+   - Unmuting, `IntersectionObserver` shielding, and MediaSession metadata attachments are strictly reserved for genuine main player videos (`window.__ytwrIsMainPlayerVideo`). Background music and watch videos continue playing seamlessly without stutter.
+
 
 
 

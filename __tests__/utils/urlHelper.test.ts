@@ -25,7 +25,7 @@ describe('urlHelper utilities', () => {
     it('returns null for non-video URLs or invalid strings', () => {
       expect(extractVideoId('https://m.youtube.com')).toBeNull();
       expect(extractVideoId('https://m.youtube.com/feed/subscriptions')).toBeNull();
-      expect(extractVideoId('https://instagram.com')).toBeNull();
+      expect(extractVideoId('https://reddit.com')).toBeNull();
       expect(extractVideoId('')).toBeNull();
       expect(extractVideoId(null as any)).toBeNull();
       expect(extractVideoId(undefined as any)).toBeNull();
@@ -34,7 +34,7 @@ describe('urlHelper utilities', () => {
 
   describe('isLikelyUrl', () => {
     it('identifies explicit http/https URLs', () => {
-      expect(isLikelyUrl('https://instagram.com')).toBe(true);
+      expect(isLikelyUrl('https://reddit.com')).toBe(true);
       expect(isLikelyUrl('http://insecure.site')).toBe(true);
     });
 

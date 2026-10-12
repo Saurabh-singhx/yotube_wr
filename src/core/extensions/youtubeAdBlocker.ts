@@ -534,7 +534,8 @@ export const youtubeAdBlocker: ExtensionManifest = {
             freezeStallCount = 0;
             return;
           }
-          if (v.closest && v.closest('.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ytm-playlist-media-item, ytd-rich-item-renderer')) {
+          if ((typeof window.__ytwrIsPreviewElement === 'function' && window.__ytwrIsPreviewElement(v)) ||
+              (v.closest && v.closest('.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-video-renderer, ytd-rich-grid-media, ytd-inline-preview-renderer, #inline-preview-player, #inline-player, .video-preview, .feed-item-preview, .thumbnail-container'))) {
             freezeStallCount = 0;
             return;
           }
