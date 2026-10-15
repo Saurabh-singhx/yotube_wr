@@ -92,9 +92,10 @@ export function getYoutubeProfileScript(): string {
   var DEFAULT_SVG_ICON = \`<svg class="ytwr-profile-avatar-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>\`;
 
   function findSearchAnchor() {
-    // 1. Direct searchbox container custom element (YouTube mobile Lit component)
+    // 1. Direct searchbox container custom element (YouTube mobile Lit component, when not in active typing mode)
     var box = document.querySelector('ytm-searchbox, ytm-search-box, .mobile-topbar-header-search');
-    if (box) return box;
+    var activeInput = box && box.querySelector('input:focus');
+    if (box && !activeInput) return box;
 
     // 2. Candidate buttons / links by class or attribute
     var candidates = [
@@ -218,6 +219,24 @@ export function getYoutubeProfileScript(): string {
       if (document.getElementById('avatar-btn')) return; // Desktop YouTube already has avatar-btn
 
       var existingBtn = document.getElementById('ytwr-nav-profile-btn');
+
+      // If active search query input is open or user is viewing /results, hide profile button to preserve full search bar layout
+      var path = (window.location && window.location.pathname) || '';
+      var isResultsPage = path.indexOf('/results') !== -1;
+      var isSearchBoxActive = !!document.querySelector(
+        'ytm-searchbox input:focus, ytm-search-box input:focus, .mobile-topbar-header-search input:focus, ytm-searchbox[opened], ytm-search-box[opened], ytm-searchbox.opened, form.search-form'
+      );
+
+      if (isResultsPage || isSearchBoxActive) {
+        if (existingBtn) {
+          existingBtn.style.setProperty('display', 'none', 'important');
+        }
+        return;
+      }
+      if (existingBtn) {
+        existingBtn.style.removeProperty('display');
+      }
+
       var searchAnchor = findSearchAnchor();
 
       if (searchAnchor) {

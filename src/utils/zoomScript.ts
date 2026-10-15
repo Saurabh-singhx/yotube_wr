@@ -352,10 +352,17 @@ export function getZoomRuntimeScript(): string {
     ) {
       return true;
     }
+
+    var path = (window.location && window.location.pathname) || '';
+    var isWatch = path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 || path.indexOf('/live') !== -1;
+    if (!isWatch) {
+      return false;
+    }
+
     var player = document.getElementById('movie_player') ||
                  document.getElementById('player') ||
-                 document.querySelector('.html5-video-player');
-    if (player && (player.classList.contains('fullscreen-mode') || player.classList.contains('fullscreen'))) {
+                 document.querySelector('ytm-watch .html5-video-player, ytd-watch-flexy .html5-video-player');
+    if (player && player.id !== 'inline-preview-player' && (player.classList.contains('fullscreen-mode') || player.classList.contains('fullscreen'))) {
       return true;
     }
     var exitBtn = document.querySelector('button[aria-label*="Exit full screen" i], button[aria-label*="Exit fullscreen" i]');
@@ -369,8 +376,18 @@ export function getZoomRuntimeScript(): string {
   function enterPlayerFullscreen() {
     try {
       if (isPlayerInFullscreen()) return;
-      var video = document.querySelector('video');
+
+      var path = (window.location && window.location.pathname) || '';
+      var isWatch = path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 || path.indexOf('/live') !== -1;
+      if (!isWatch) return;
+
+      var video = document.querySelector('#movie_player video, .html5-video-player:not(#inline-preview-player) video, ytm-watch video, ytd-watch-flexy video, video.video-stream');
       if (!video) return;
+
+      if (typeof window.__ytwrIsPreviewElement === 'function' && window.__ytwrIsPreviewElement(video)) return;
+      if (video.closest && video.closest('.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-video-renderer, ytd-rich-grid-media, ytd-inline-preview-renderer, #inline-preview-player, #inline-player, .video-preview, .feed-item-preview, .thumbnail-container')) {
+        return;
+      }
 
       var fsBtn = document.querySelector(
         '.ytp-fullscreen-button, button[aria-label*="Full screen" i], button[aria-label*="fullscreen" i]'
@@ -383,8 +400,8 @@ export function getZoomRuntimeScript(): string {
 
       var player = document.getElementById('movie_player') ||
                    document.getElementById('player') ||
-                   document.querySelector('.html5-video-player');
-      if (player) {
+                   document.querySelector('ytm-watch .html5-video-player, ytd-watch-flexy .html5-video-player');
+      if (player && player.id !== 'inline-preview-player') {
         if (typeof player.requestFullscreen === 'function') {
           player.requestFullscreen().catch(function(){});
         } else if (typeof player.webkitRequestFullscreen === 'function') {

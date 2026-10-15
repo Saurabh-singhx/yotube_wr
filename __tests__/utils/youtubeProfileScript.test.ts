@@ -44,4 +44,10 @@ describe('youtubeProfileScript', () => {
     expect(script).toContain('yt-navigate-finish');
     expect(script).toContain('popstate');
   });
+
+  it('hides profile button during active search typing or on search results page', () => {
+    expect(script).toContain('isSearchBoxActive');
+    expect(script).toContain('isResultsPage');
+    expect(script).toContain("existingBtn.style.setProperty('display', 'none', 'important')");
+  });
 });

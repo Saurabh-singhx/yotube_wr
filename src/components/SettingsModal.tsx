@@ -51,6 +51,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       visible={visible}
       animationType="fade"
       transparent={true}
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>

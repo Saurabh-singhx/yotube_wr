@@ -68,6 +68,7 @@ export const CustomExtensionModal: React.FC<CustomExtensionModalProps> = ({
       visible={visible}
       animationType="slide"
       transparent
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
       <View style={styles.modalOverlay}>

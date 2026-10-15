@@ -429,7 +429,8 @@ export const youtubeAdBlocker: ExtensionManifest = {
                 if (!adExitDebounceTimer) {
                   adExitDebounceTimer = setTimeout(function() {
                     adExitDebounceTimer = null;
-                    var activeVideo = document.querySelector('video');
+                    var activeVideo = document.querySelector('#movie_player video, .html5-video-player:not(#inline-preview-player) video, ytm-watch video, ytd-watch-flexy video, video.video-stream');
+                    if (!activeVideo) activeVideo = document.querySelector('video');
                     var activePlayer = findPlayer(activeVideo);
                     if (checkIsAd(activeVideo, activePlayer)) {
                       return;
@@ -438,6 +439,9 @@ export const youtubeAdBlocker: ExtensionManifest = {
                     wasAdActive = false;
                     hasJumpedThisAd = false;
                     currentAdSrc = '';
+
+                    var path = (window.location && window.location.pathname) || '';
+                    var isWatch = !path || path === '/' || path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 || path.indexOf('/live') !== -1;
 
                     if (activeVideo) {
                       activeVideo.playbackRate = savedPlaybackRate || 1.0;
@@ -449,12 +453,17 @@ export const youtubeAdBlocker: ExtensionManifest = {
                         activeVideo.currentTime = 0;
                       }
 
-                      if (activeVideo.paused && !activeVideo.ended && !window.__userWantsPaused) {
+                      var isPrev = (typeof window.__ytwrIsPreviewElement === 'function') ?
+                        window.__ytwrIsPreviewElement(activeVideo) :
+                        !!(activeVideo.closest && activeVideo.closest('.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, .video-preview, .feed-item-preview, #inline-preview-player, #inline-player'));
+
+                      // Only trigger play on watch routes and non-preview elements
+                      if (isWatch && !isPrev && activeVideo.paused && !activeVideo.ended && !window.__userWantsPaused) {
                         try { activeVideo.play().catch(function(){}); } catch(e) {}
                       }
                     }
 
-                    if (activePlayer && !window.__userWantsPaused) {
+                    if (activePlayer && activePlayer.id !== 'inline-preview-player' && isWatch && !window.__userWantsPaused) {
                       try {
                         if (typeof activePlayer.unMute === 'function') activePlayer.unMute();
                         if (typeof activePlayer.getVolume === 'function' && activePlayer.getVolume() === 0) {

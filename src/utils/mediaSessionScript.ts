@@ -260,6 +260,7 @@ export function getBackgroundPlayScript(): string {
         window.__lastPlayerInteractionTime = 0;
         window.__lastPauseButtonTapTime = 0;
         window.__userWantsPaused = false;
+        window.__ytwrIsVideoActivelyPlaying = false;
         window.__isRemotePauseCommand = false;
         window.__isRemotePlayCommand = false;
         if (typeof window.__isAppInBackground === 'undefined') {
@@ -604,17 +605,25 @@ export function getMediaObserverScript(): string {
           !!(video.closest && video.closest(
             '.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ' +
             'ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ' +
-            '.video-preview, .feed-item-preview'
+            'ytd-grid-video-renderer, ytd-video-renderer, ytd-rich-grid-media, ytd-inline-preview-renderer, ' +
+            '#inline-preview-player, #inline-player, .video-preview, .feed-item-preview, .thumbnail-container'
           ));
         if (isPreview) return false;
 
-        var isPlayerContainer = !!(video.closest && video.closest(
-          '#movie_player:not(#inline-preview-player), ytm-watch, ytd-watch-flexy, ytd-miniplayer, .watch-page--mini, #player, .player-container, #player-container-id, .video-player'
-        ));
-        if (isPlayerContainer) return true;
-
         var path = window.location.pathname || '';
-        return path.indexOf('/watch') !== -1 || path.indexOf('/embed') !== -1 || path.indexOf('/live') !== -1 || path.indexOf('/shorts') !== -1;
+        var isWatchPath = path.indexOf('/watch') !== -1 || path.indexOf('/embed') !== -1 || path.indexOf('/live') !== -1 || path.indexOf('/shorts') !== -1;
+
+        if (isWatchPath) {
+          var isPlayerContainer = !!(video.closest && video.closest(
+            '#movie_player:not(#inline-preview-player), ytm-watch, ytd-watch-flexy, ytd-miniplayer, .watch-page--mini, #player, .player-container, #player-container-id, .video-player'
+          ));
+          if (isPlayerContainer) return true;
+          return true;
+        }
+
+        // On non-watch pages (feed, search, profile): only true if an active watch element exists
+        var isExplicitWatch = !!(video.closest && video.closest('ytm-watch, ytd-watch-flexy, ytd-miniplayer, .watch-page--mini'));
+        return isExplicitWatch;
       }
 
       function unmuteAudio(video) {
@@ -663,14 +672,27 @@ export function getMediaObserverScript(): string {
           video.addEventListener(ev, function() {
             if (ev === 'play' || ev === 'playing') {
               window.__userWantsPaused = false;
+              window.__ytwrIsVideoActivelyPlaying = true;
               unmuteAudio(video);
             } else if (ev === 'timeupdate' && !video.paused) {
               window.__userWantsPaused = false;
+              window.__ytwrIsVideoActivelyPlaying = true;
+            } else if (ev === 'ended') {
+              window.__ytwrIsVideoActivelyPlaying = false;
             } else if (ev === 'pause') {
-              // Auto-recovery: If video pauses in background without intentional user pause command
-              if (window.__isAppInBackground === true && !window.__userWantsPaused) {
+              var now = Date.now();
+              var isExplicitUserPause = (now - (window.__lastPauseButtonTapTime || 0)) <= 1000 ||
+                                         (now - (window.__lastPlayerInteractionTime || 0)) <= 1000 ||
+                                         window.__isRemotePauseCommand === true;
+              if (isExplicitUserPause) {
+                window.__ytwrIsVideoActivelyPlaying = false;
+              }
+              // Auto-recovery: Only recover if an actively playing video was paused by OS backgrounding on a watch page
+              var path = (window.location && window.location.pathname) || '';
+              var isWatchPage = path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 || path.indexOf('/live') !== -1 || path.indexOf('/embed') !== -1;
+              if (isWatchPage && window.__isAppInBackground === true && window.__ytwrIsVideoActivelyPlaying === true && !window.__userWantsPaused) {
                 setTimeout(function() {
-                  if (video.paused && !video.ended && !window.__userWantsPaused) {
+                  if (video.paused && !video.ended && !window.__userWantsPaused && window.__ytwrIsVideoActivelyPlaying === true) {
                     video.play().catch(function(){});
                     var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
                     if (p && typeof p.playVideo === 'function') p.playVideo();
@@ -683,6 +705,7 @@ export function getMediaObserverScript(): string {
         });
 
         if (!video.paused) {
+          window.__ytwrIsVideoActivelyPlaying = true;
           unmuteAudio(video);
           reportMediaState(video, true);
         }
@@ -708,6 +731,11 @@ export function getMediaObserverScript(): string {
 
       // YouTube SPA navigation listener
       var handleNavChange = function() {
+        var path = (window.location && window.location.pathname) || '';
+        var isWatch = path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 || path.indexOf('/live') !== -1 || path.indexOf('/embed') !== -1;
+        if (!isWatch) {
+          window.__ytwrIsVideoActivelyPlaying = false;
+        }
         window.__userWantsPaused = false;
         setTimeout(function() {
           var v = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream, video');
@@ -728,7 +756,9 @@ export function getMediaObserverScript(): string {
 
       // Background Media Session Sync: Periodically ensure playing media state stays synchronized with native service
       setInterval(function() {
-        if (window.__isAppInBackground === true && !window.__userWantsPaused) {
+        var path = (window.location && window.location.pathname) || '';
+        var isWatch = path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 || path.indexOf('/live') !== -1 || path.indexOf('/embed') !== -1;
+        if (isWatch && window.__isAppInBackground === true && window.__ytwrIsVideoActivelyPlaying === true && !window.__userWantsPaused) {
           var v = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream, video');
           if (v && isMainPlayerVideo(v) && !v.paused && !v.ended) {
             reportMediaState(v, false);

@@ -650,6 +650,13 @@ describe('mediaSessionScript', () => {
       expect(feedPaused).toBe(true);
       expect(musicPaused).toBe(false);
     });
+
+    it('tracks active video playback state and protects background auto-recovery with watch route check', () => {
+      const observerScript = getMediaObserverScript();
+      expect(observerScript).toContain('window.__ytwrIsVideoActivelyPlaying');
+      expect(observerScript).toContain('isWatchPage');
+      expect(observerScript).toContain("path.indexOf('/watch')");
+    });
   });
 });
 

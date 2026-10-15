@@ -373,9 +373,19 @@ export class ExtensionEngine {
           function kickInstantPlayback() {
             if (window.__userWantsPaused) return;
 
-            var video = document.querySelector('#movie_player video, .html5-video-player video, #player video, video.video-stream');
-            if (!video) video = document.querySelector('video');
+            // Strictly require an active watch / shorts / live route
+            var path = (window.location && window.location.pathname) || '';
+            var isWatch = path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 || path.indexOf('/live') !== -1;
+            if (!isWatch) return;
+
+            var video = document.querySelector('#movie_player video, .html5-video-player:not(#inline-preview-player) video, ytm-watch video, ytd-watch-flexy video, video.video-stream');
             if (!video) return;
+
+            // Never kick feed previews or thumbnail hover items
+            if (typeof window.__ytwrIsPreviewElement === 'function' && window.__ytwrIsPreviewElement(video)) return;
+            if (video.closest && video.closest('.inline-preview, ytd-video-preview, ytm-video-preview, ytm-media-item, ytm-playlist-media-item, ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-video-renderer, ytd-rich-grid-media, ytd-inline-preview-renderer, #inline-preview-player, #inline-player, .video-preview, .feed-item-preview, .thumbnail-container')) {
+              return;
+            }
 
             // Never interfere if an ad is actively showing
             var player = document.getElementById('movie_player') ||
@@ -383,6 +393,7 @@ export class ExtensionEngine {
                          document.querySelector('.html5-video-player');
 
             if (player) {
+              if (player.id === 'inline-preview-player') return;
               try {
                 if (typeof player.isAdShowing === 'function' && player.isAdShowing()) return;
               } catch(e) {}

@@ -70,4 +70,11 @@ describe('zoomScript utility', () => {
     expect(script).toContain('function isPhysicalLandscape()');
     expect(script).toContain('function syncLayoutState()');
   });
+
+  it('strictly guards fullscreen enter and detection to watch routes and excludes preview elements', () => {
+    const script = getZoomRuntimeScript();
+    expect(script).toContain("var isWatch = path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 || path.indexOf('/live') !== -1;");
+    expect(script).toContain('window.__ytwrIsPreviewElement');
+    expect(script).toContain('#inline-preview-player');
+  });
 });

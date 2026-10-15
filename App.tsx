@@ -10,6 +10,7 @@ import {
   NativeEventEmitter,
   AppState,
   AppStateStatus,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -44,6 +45,24 @@ function MainApp() {
   const { extensions, handleBridgeMessage, toggleExtension } = useExtensions();
   const { width, height } = useWindowDimensions();
 
+  // Software keyboard visibility tracking (immune to keyboard show/hide glitches)
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setIsKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setIsKeyboardVisible(false)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   // Screen orientation tracking (hardware physical screen orientation - immune to software keyboard resize)
   const [isLandscape, setIsLandscape] = useState(() => {
     const screen = Dimensions.get('screen');
@@ -53,12 +72,16 @@ function MainApp() {
   useEffect(() => {
     const checkOrientation = () => {
       const screen = Dimensions.get('screen');
-      setIsLandscape(screen.width > screen.height);
+      if (screen && screen.width && screen.height) {
+        setIsLandscape(screen.width > screen.height);
+      }
     };
 
     // 1. Hardware physical screen dimensions listener (swapped on true rotation, untouched by soft keyboard)
     const dimSub = Dimensions.addEventListener('change', ({ screen }) => {
-      setIsLandscape(screen.width > screen.height);
+      if (screen && screen.width && screen.height) {
+        setIsLandscape(screen.width > screen.height);
+      }
     });
 
     // 2. Hardware screen orientation sensor changes
@@ -271,28 +294,35 @@ function MainApp() {
   const userExitedFullscreenInLandscapeRef = useRef(false);
   const prevIsLandscapeRef = useRef(isLandscape);
 
+  // Helper to strictly identify active watch / video playback routes
+  const isWatchRoute = useMemo(() => {
+    return !!(
+      currentUrl.includes('/watch') ||
+      currentUrl.includes('/shorts') ||
+      currentUrl.includes('/live') ||
+      extractVideoId(currentUrl)
+    );
+  }, [currentUrl]);
+
   // Automatic Fullscreen Transition on Device Rotation (Mirroring Native YouTube Behavior)
   useEffect(() => {
     const prevIsLandscape = prevIsLandscapeRef.current;
     prevIsLandscapeRef.current = isLandscape;
 
-    // Do not auto-toggle fullscreen if any modal or PiP player is active
+    // Do not auto-toggle fullscreen if any modal, keyboard, or PiP player is active
     if (
       isSettingsModalOpen ||
       isSearchModalOpen ||
       isExtensionsModalOpen ||
       isCustomExtensionModalOpen ||
-      pipVideoId
+      pipVideoId ||
+      isKeyboardVisible
     ) {
       return;
     }
 
-    const hasActiveVideo = !!(
-      extractVideoId(currentUrl) ||
-      lastVideoIdRef.current ||
-      currentUrl.includes('/watch') ||
-      isVideoPlaying
-    );
+    // Auto-fullscreen must STRICTLY require an active watch page and actual playing video
+    const hasActiveVideo = isWatchRoute && (isVideoPlaying || !!lastVideoIdRef.current);
 
     if (isLandscape && !prevIsLandscape) {
       // Rotated into Landscape: auto-enter fullscreen if a video is active and not manually exited
@@ -343,9 +373,11 @@ function MainApp() {
     }
   }, [
     isLandscape,
+    isWatchRoute,
     currentUrl,
     isVideoPlaying,
     isWebFullscreen,
+    isKeyboardVisible,
     isSettingsModalOpen,
     isSearchModalOpen,
     isExtensionsModalOpen,
@@ -357,7 +389,9 @@ function MainApp() {
   useEffect(() => {
     if (
       isLandscape &&
+      isWatchRoute &&
       isVideoPlaying &&
+      !isKeyboardVisible &&
       !isWebFullscreen &&
       !userExitedFullscreenInLandscapeRef.current &&
       !isSettingsModalOpen &&
@@ -385,7 +419,9 @@ function MainApp() {
     }
   }, [
     isVideoPlaying,
+    isWatchRoute,
     isLandscape,
+    isKeyboardVisible,
     isWebFullscreen,
     isSettingsModalOpen,
     isSearchModalOpen,
@@ -587,8 +623,16 @@ function MainApp() {
     );
   }
 
-  // Do not apply safe area insets in fullscreen or landscape modes (full edge-to-edge experience)
-  const isImmersiveFullscreen = isWebFullscreen || isLandscape;
+  // Do not apply safe area insets in fullscreen or landscape modes (full edge-to-edge experience),
+  // but NEVER enter immersive mode when a modal is open or software keyboard is active (prevents SafeAreaView glitches)
+  const isAnyModalOpen =
+    isSettingsModalOpen ||
+    isSearchModalOpen ||
+    isExtensionsModalOpen ||
+    isCustomExtensionModalOpen;
+
+  const isImmersiveFullscreen =
+    (isWebFullscreen || isLandscape) && !isKeyboardVisible && !isAnyModalOpen;
 
   return (
     <SafeAreaView
@@ -675,13 +719,25 @@ function MainApp() {
               setCurrentUrl(navState.url);
 
               const vid = extractVideoId(navState.url);
+              const isWatch = !!(
+                navState.url.includes('/watch') ||
+                navState.url.includes('/shorts') ||
+                navState.url.includes('/live') ||
+                vid
+              );
+
               if (vid) {
                 if (vid !== lastVideoIdRef.current) {
                   userExitedFullscreenInLandscapeRef.current = false;
                 }
                 lastVideoIdRef.current = vid;
-              } else {
+              } else if (!isWatch) {
+                // Leaving watch route to feed, search, or profile:
+                // Cleanly reset playing flag, fullscreen state, and active video reference
                 setIsVideoPlaying(false);
+                setIsWebFullscreen(false);
+                lastVideoIdRef.current = null;
+                userExitedFullscreenInLandscapeRef.current = false;
               }
             }
           }}
@@ -734,7 +790,7 @@ function MainApp() {
       )}
 
       {/* Bottom Floating Navigation Dock: Back, Forward, Home, Reload, Settings */}
-      {!isLandscape && !isWebFullscreen && (
+      {!isLandscape && !isWebFullscreen && !isKeyboardVisible && (
         <BottomDock
           canGoBack={canGoBack}
           canGoForward={canGoForward}
@@ -770,7 +826,7 @@ function MainApp() {
         onClose={() => setIsSearchModalOpen(false)}
         onNavigate={handleNavigate}
         currentUrl={currentUrl}
-        hasActiveVideo={!!(extractVideoId(currentUrl) || lastVideoIdRef.current)}
+        hasActiveVideo={isWatchRoute && (isVideoPlaying || !!lastVideoIdRef.current)}
       />
 
       {/* Extensions Hub Modal */}

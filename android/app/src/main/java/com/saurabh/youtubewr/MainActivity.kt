@@ -33,6 +33,16 @@ class MainActivity : ReactActivity() {
             if (typeof window.__ytwrPausePreviewVideos === 'function') {
                 window.__ytwrPausePreviewVideos();
             }
+            // Route check: ONLY active video watch/shorts/live routes support background playback!
+            var path = (window.location && window.location.pathname) || '';
+            var isWatchPage = path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 || path.indexOf('/live') !== -1 || path.indexOf('/embed') !== -1;
+            if (!isWatchPage) {
+                return;
+            }
+            // Strict check: ONLY keep playing if video was already actively playing and not paused by user
+            if (window.__userWantsPaused === true || window.__ytwrIsVideoActivelyPlaying !== true) {
+                return;
+            }
             var isPrev = function(el) {
                 if (!el) return false;
                 if (typeof window.__ytwrIsPreviewElement === 'function') return window.__ytwrIsPreviewElement(el);
@@ -50,7 +60,7 @@ class MainActivity : ReactActivity() {
             }
             var p = document.getElementById('movie_player');
             if (p && p.id === 'inline-preview-player') p = null;
-            if (mainVideo && !window.__userWantsPaused) {
+            if (mainVideo && !mainVideo.ended && !window.__userWantsPaused && window.__ytwrIsVideoActivelyPlaying === true) {
                 mainVideo.play().catch(function(){});
                 if (p && typeof p.playVideo === 'function') p.playVideo();
             }
@@ -335,7 +345,9 @@ class MainActivity : ReactActivity() {
   }
 
   /**
-   * Called when window focus changes (e.g. notification shade pulled down, dialog opened, or app minimized).
+   * Called when window focus changes (e.g. keyboard opened, dialog shown, notification shade pulled, or app minimized).
+   * Note: The app is still in foreground during in-app dialogs and soft keyboard displays.
+   * We record the blur timestamp to suppress automated YouTube blur pauses, but do NOT engage background locking.
    */
   override fun onWindowFocusChanged(hasFocus: Boolean) {
       super.onWindowFocusChanged(hasFocus)
@@ -344,11 +356,14 @@ class MainActivity : ReactActivity() {
           if (!hasFocus) {
               forceWebViewVisible(webView)
               webView?.resumeTimers()
-              webView?.evaluateJavascript(BACKGROUND_LOCK_SCRIPT, null)
+              webView?.evaluateJavascript(
+                  "(function(){ window.__windowHasBlur = true; window.__lastBlurTime = Date.now(); })(); true;",
+                  null
+              )
           } else {
               webView?.resumeTimers()
               webView?.evaluateJavascript(
-                  "(function(){ window.__isAppInBackground = false; window.__windowHasBlur = false; window.__lastBlurTime = 0; window.__lastUserGestureTime = 0; window.__lastPlayerInteractionTime = 0; window.__lastPauseButtonTapTime = 0; })(); true;",
+                  "(function(){ window.__windowHasBlur = false; window.__lastBlurTime = 0; window.__lastUserGestureTime = 0; window.__lastPlayerInteractionTime = 0; window.__lastPauseButtonTapTime = 0; })(); true;",
                   null
               )
           }

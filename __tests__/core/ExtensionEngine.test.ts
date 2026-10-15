@@ -147,6 +147,8 @@ describe('ExtensionEngine', () => {
       expect(script).toContain('.dummy-class { color: red; }');
       expect(script).toContain('window.__DUMMY_END__ = true;');
       expect(script).toContain('yt-navigate-finish');
+      expect(script).toContain("var isWatch = path.indexOf('/watch') !== -1 || path.indexOf('/shorts') !== -1 || path.indexOf('/live') !== -1;");
+      expect(script).toContain('window.__ytwrIsPreviewElement');
     });
   });
 

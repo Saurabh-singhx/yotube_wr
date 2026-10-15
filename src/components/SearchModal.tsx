@@ -150,6 +150,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
       visible={visible}
       animationType="slide"
       transparent
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
