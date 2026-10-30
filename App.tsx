@@ -1,0 +1,897 @@
+import React, { useRef, useState, useMemo, useEffect } from 'react';
+import {
+  StyleSheet,
+  View,
+  BackHandler,
+  Platform,
+  useWindowDimensions,
+  Dimensions,
+  NativeModules,
+  NativeEventEmitter,
+  AppState,
+  AppStateStatus,
+  Keyboard,
+} from 'react-native';
+import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { WebView } from 'react-native-webview';
+import * as ScreenOrientation from 'expo-screen-orientation';
+
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import { ExtensionProvider, useExtensions } from './src/context/ExtensionContext';
+import { ExtensionEngine } from './src/core/ExtensionEngine';
+import { BottomDock } from './src/components/BottomDock';
+import { SettingsModal } from './src/components/SettingsModal';
+import { ExtensionsModal } from './src/components/ExtensionsModal';
+import { CustomExtensionModal } from './src/components/CustomExtensionModal';
+import { SearchModal } from './src/components/SearchModal';
+import { PipPlayer } from './src/components/PipPlayer';
+import { triggerHaptic } from './src/utils/haptics';
+import { extractVideoId } from './src/utils/urlHelper';
+import { getZoomRuntimeScript } from './src/utils/zoomScript';
+import { getProfileShortcutsScript } from './src/utils/profileShortcutsScript';
+import { getRemoteControlScript } from './src/utils/mediaSessionScript';
+import { checkAppStatus, getCachedAppStatus, ConfigCheckResult } from './src/services/appConfigService';
+import { StatusNoticeView } from './src/components/StatusNoticeView';
+
+const MOBILE_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
+
+const DESKTOP_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+function MainApp() {
+  const { palette, isDark } = useTheme();
+  const { extensions, handleBridgeMessage, toggleExtension } = useExtensions();
+  const { width, height } = useWindowDimensions();
+
+  // Software keyboard visibility tracking (immune to keyboard show/hide glitches)
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setIsKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setIsKeyboardVisible(false)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  // Screen orientation tracking (hardware physical screen orientation - immune to software keyboard resize)
+  const [isLandscape, setIsLandscape] = useState(() => {
+    const screen = Dimensions.get('screen');
+    return screen.width > screen.height;
+  });
+
+  useEffect(() => {
+    const checkOrientation = () => {
+      const screen = Dimensions.get('screen');
+      if (screen && screen.width && screen.height) {
+        setIsLandscape(screen.width > screen.height);
+      }
+    };
+
+    // 1. Hardware physical screen dimensions listener (swapped on true rotation, untouched by soft keyboard)
+    const dimSub = Dimensions.addEventListener('change', ({ screen }) => {
+      if (screen && screen.width && screen.height) {
+        setIsLandscape(screen.width > screen.height);
+      }
+    });
+
+    // 2. Hardware screen orientation sensor changes
+    const orientationSub = ScreenOrientation.addOrientationChangeListener((evt) => {
+      const o = evt.orientationInfo.orientation;
+      const isLand =
+        o === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+        o === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
+      setIsLandscape(isLand);
+    });
+
+    ScreenOrientation.getOrientationAsync()
+      .then((o) => {
+        const isLand =
+          o === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+          o === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
+        setIsLandscape(isLand);
+      })
+      .catch(() => {
+        checkOrientation();
+      });
+
+    return () => {
+      dimSub.remove();
+      orientationSub.remove();
+    };
+  }, []);
+
+  const webViewRef = useRef<WebView>(null);
+
+  // Active top-level URI for the native WebView (updates on deliberate user navigation)
+  const [activeSourceUri, setActiveSourceUri] = useState('https://m.youtube.com');
+
+  // Currently loaded URL reported by the page (for UI/search tracking)
+  const [currentUrl, setCurrentUrl] = useState('https://m.youtube.com');
+
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  // Auto-recovery watchdog to guarantee reload/loading state never gets stuck
+  useEffect(() => {
+    if (isLoading) {
+      const watchdog = setTimeout(() => {
+        setIsLoading(false);
+        setProgress(1);
+      }, 7000);
+      return () => clearTimeout(watchdog);
+    }
+  }, [isLoading]);
+
+  const [isDesktopMode, setIsDesktopMode] = useState(false);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+
+  // Always use mobile user agent by default for optimal mobile responsive experience
+  const effectiveUserAgent = useMemo(() => {
+    return isDesktopMode ? DESKTOP_USER_AGENT : MOBILE_USER_AGENT;
+  }, [isDesktopMode]);
+
+  // Picture-in-Picture (PiP) State
+  const [pipVideoId, setPipVideoId] = useState<string | null>(null);
+  const lastVideoIdRef = useRef<string | null>(null);
+
+  // Modals
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isExtensionsModalOpen, setIsExtensionsModalOpen] = useState(false);
+  const [isCustomExtensionModalOpen, setIsCustomExtensionModalOpen] = useState(false);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+
+  const zenExt = extensions.find((e) => e.id === 'youtube-distraction-free');
+  const isZenActive = zenExt?.enabled ?? false;
+
+  // Remote configuration and status check
+  const [statusNotice, setStatusNotice] = useState<ConfigCheckResult | null>(null);
+
+  useEffect(() => {
+    // 1. Immediately check persistent storage (cold startup check without network latency)
+    getCachedAppStatus().then((cached) => {
+      if (cached?.isBlocked) {
+        setStatusNotice(cached);
+      }
+    });
+
+    // 2. Perform live network verification
+    checkAppStatus().then((result) => {
+      if (result.isBlocked) {
+        setStatusNotice(result);
+      } else {
+        setStatusNotice(null);
+      }
+    });
+  }, []);
+
+  // Allow free rotation so the user can easily watch videos in portrait and landscape
+  useEffect(() => {
+    ScreenOrientation.unlockAsync().catch(() => {});
+  }, []);
+
+  // Media session state tracking for native Android lockscreen and notification
+  const mediaMetadataRef = useRef({
+    title: '',
+    artist: '',
+    album: 'Vidwr',
+    thumbnailUrl: '',
+    isPlaying: false,
+    position: 0,
+    duration: 0,
+    speed: 1,
+  });
+
+  // Native Android MediaSession lockscreen/notification controls
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !NativeModules.MediaSessionModule) return;
+
+    if (NativeModules.MediaSessionModule.requestNotificationPermission) {
+      NativeModules.MediaSessionModule.requestNotificationPermission().catch(() => {});
+    }
+
+    const eventEmitter = new NativeEventEmitter(NativeModules.MediaSessionModule);
+    const sub = eventEmitter.addListener(
+      'MediaSessionAction',
+      (event: { action: string; position?: number; scriptHandled?: boolean }) => {
+        if (event.action === 'PAUSE' || event.action === 'STOP') {
+          setIsVideoPlaying(false);
+        } else if (event.action === 'PLAY') {
+          setIsVideoPlaying(true);
+        }
+        // If native MainActivity already executed the remote script directly on the WebView,
+        // do not execute it a second time to prevent double-toggle oscillations.
+        if (!event.scriptHandled && webViewRef.current) {
+          const script = getRemoteControlScript(event.action, event.position);
+          webViewRef.current.injectJavaScript(script);
+        }
+      }
+    );
+
+    return () => {
+      sub.remove();
+      if (NativeModules.MediaSessionModule?.stopPlayback) {
+        NativeModules.MediaSessionModule.stopPlayback();
+      }
+    };
+  }, []);
+
+  // Bridge native AppState to WebView so backgrounding is never confused with player pause gestures
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      const isBackground = nextAppState === 'background' || nextAppState === 'inactive';
+      if (!isBackground) {
+        checkAppStatus().then((result) => {
+          if (result.isBlocked) {
+            setStatusNotice(result);
+          } else {
+            setStatusNotice(null);
+          }
+        });
+      }
+      if (webViewRef.current) {
+        webViewRef.current.injectJavaScript(`
+          (function() {
+            window.__isAppInBackground = ${isBackground};
+            if (${isBackground}) {
+              window.__windowHasBlur = true;
+              window.__lastBlurTime = Date.now();
+              window.__lastUserGestureTime = 0;
+              window.__lastPlayerInteractionTime = 0;
+              window.__lastPauseButtonTapTime = 0;
+              if (typeof window.__ytwrPausePreviewVideos === 'function') {
+                window.__ytwrPausePreviewVideos();
+              }
+            } else {
+              window.__windowHasBlur = false;
+              window.__lastBlurTime = 0;
+              window.__lastUserGestureTime = 0;
+              window.__lastPlayerInteractionTime = 0;
+              window.__lastPauseButtonTapTime = 0;
+            }
+          })();
+          true;
+        `);
+      }
+    };
+
+    const appStateSub = AppState.addEventListener('change', handleAppStateChange);
+    return () => appStateSub.remove();
+  }, []);
+
+  // Stable WebView source that only changes when user explicitly switches webapp or desktop mode
+  const webViewSource = useMemo(() => {
+    return { uri: activeSourceUri };
+  }, [activeSourceUri]);
+
+  // Compile extension scripts (recomputed when extensions, active webapp source, or dark theme change)
+  const targetScriptUrl = activeSourceUri || currentUrl;
+
+  const injectedStartScript = useMemo(() => {
+    return ExtensionEngine.buildBeforeContentLoadedScript(extensions, targetScriptUrl, isDark);
+  }, [extensions, targetScriptUrl, isDark]);
+
+  const injectedEndScript = useMemo(() => {
+    const baseScript = ExtensionEngine.buildAfterContentLoadedScript(extensions, targetScriptUrl, isDark);
+    const zoomScript = getZoomRuntimeScript();
+    const profileScript = getProfileShortcutsScript();
+    return `${baseScript}\n${zoomScript}\n${profileScript}`;
+  }, [extensions, targetScriptUrl, isDark]);
+
+  // Fullscreen tracking for in-page web media player
+  const [isWebFullscreen, setIsWebFullscreen] = useState(false);
+  const userExitedFullscreenInLandscapeRef = useRef(false);
+  const prevIsLandscapeRef = useRef(isLandscape);
+
+  // Helper to strictly identify active watch / video playback routes
+  const isWatchRoute = useMemo(() => {
+    return !!(
+      currentUrl.includes('/watch') ||
+      currentUrl.includes('/shorts') ||
+      currentUrl.includes('/live') ||
+      extractVideoId(currentUrl)
+    );
+  }, [currentUrl]);
+
+  // Automatic Fullscreen Transition on Device Rotation (Mirroring Native Player Behavior)
+  useEffect(() => {
+    const prevIsLandscape = prevIsLandscapeRef.current;
+    prevIsLandscapeRef.current = isLandscape;
+
+    // Do not auto-toggle fullscreen if any modal, keyboard, or PiP player is active
+    if (
+      isSettingsModalOpen ||
+      isSearchModalOpen ||
+      isExtensionsModalOpen ||
+      isCustomExtensionModalOpen ||
+      pipVideoId ||
+      isKeyboardVisible
+    ) {
+      return;
+    }
+
+    // Auto-fullscreen must STRICTLY require an active watch page and actual playing video
+    const hasActiveVideo = isWatchRoute && (isVideoPlaying || !!lastVideoIdRef.current);
+
+    if (isLandscape && !prevIsLandscape) {
+      // Rotated into Landscape: auto-enter fullscreen if a video is active and not manually exited
+      if (hasActiveVideo && !isWebFullscreen && !userExitedFullscreenInLandscapeRef.current) {
+        const timer = setTimeout(() => {
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript(`
+              (function() {
+                if (typeof window.__enterPlayerFullscreen === 'function') {
+                  window.__enterPlayerFullscreen();
+                } else {
+                  var fsBtn = document.querySelector('.ytp-fullscreen-button, button[aria-label*="Full screen" i], button[aria-label*="fullscreen" i]');
+                  if (fsBtn) fsBtn.click();
+                }
+              })();
+              true;
+            `);
+          }
+        }, 180);
+        return () => clearTimeout(timer);
+      }
+    } else if (!isLandscape && prevIsLandscape) {
+      // Rotated back into Portrait: reset manual exit flag and auto-restore normal view
+      userExitedFullscreenInLandscapeRef.current = false;
+
+      if (isWebFullscreen) {
+        if (webViewRef.current) {
+          webViewRef.current.injectJavaScript(`
+            (function() {
+              if (typeof window.__exitPlayerFullscreen === 'function') {
+                window.__exitPlayerFullscreen();
+              } else {
+                var exitBtn = document.querySelector('.ytp-fullscreen-button, button[aria-label*="Exit full screen" i], button[aria-label*="Exit fullscreen" i]');
+                if (exitBtn) {
+                  exitBtn.click();
+                } else if (document.exitFullscreen) {
+                  document.exitFullscreen().catch(function(){});
+                } else if (document.webkitExitFullscreen) {
+                  document.webkitExitFullscreen();
+                }
+              }
+            })();
+            true;
+          `);
+        }
+        setIsWebFullscreen(false);
+      }
+    }
+  }, [
+    isLandscape,
+    isWatchRoute,
+    currentUrl,
+    isVideoPlaying,
+    isWebFullscreen,
+    isKeyboardVisible,
+    isSettingsModalOpen,
+    isSearchModalOpen,
+    isExtensionsModalOpen,
+    isCustomExtensionModalOpen,
+    pipVideoId,
+  ]);
+
+  // If a video starts playing while ALREADY in landscape, auto-enter fullscreen (unless manually exited)
+  useEffect(() => {
+    if (
+      isLandscape &&
+      isWatchRoute &&
+      isVideoPlaying &&
+      !isKeyboardVisible &&
+      !isWebFullscreen &&
+      !userExitedFullscreenInLandscapeRef.current &&
+      !isSettingsModalOpen &&
+      !isSearchModalOpen &&
+      !isExtensionsModalOpen &&
+      !isCustomExtensionModalOpen &&
+      !pipVideoId
+    ) {
+      const timer = setTimeout(() => {
+        if (webViewRef.current) {
+          webViewRef.current.injectJavaScript(`
+            (function() {
+              if (typeof window.__enterPlayerFullscreen === 'function') {
+                window.__enterPlayerFullscreen();
+              } else {
+                var fsBtn = document.querySelector('.ytp-fullscreen-button, button[aria-label*="Full screen" i], button[aria-label*="fullscreen" i]');
+                if (fsBtn) fsBtn.click();
+              }
+            })();
+            true;
+          `);
+        }
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+  }, [
+    isVideoPlaying,
+    isWatchRoute,
+    isLandscape,
+    isKeyboardVisible,
+    isWebFullscreen,
+    isSettingsModalOpen,
+    isSearchModalOpen,
+    isExtensionsModalOpen,
+    isCustomExtensionModalOpen,
+    pipVideoId,
+  ]);
+
+  // Screen Keep-Awake: Prevent display inactivity sleep while actively watching a video (normally or in fullscreen)
+  useEffect(() => {
+    const shouldKeepScreenOn = isVideoPlaying && isWatchRoute;
+    if (Platform.OS === 'android' && NativeModules.MediaSessionModule?.setKeepScreenOn) {
+      NativeModules.MediaSessionModule.setKeepScreenOn(shouldKeepScreenOn);
+    }
+    return () => {
+      if (Platform.OS === 'android' && NativeModules.MediaSessionModule?.setKeepScreenOn) {
+        NativeModules.MediaSessionModule.setKeepScreenOn(false);
+      }
+    };
+  }, [isVideoPlaying, isWatchRoute]);
+
+  // Handle hardware back button on Android
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      const onBackPress = () => {
+        if (isSettingsModalOpen) {
+          setIsSettingsModalOpen(false);
+          return true;
+        }
+        if (isSearchModalOpen) {
+          setIsSearchModalOpen(false);
+          return true;
+        }
+        if (isExtensionsModalOpen) {
+          setIsExtensionsModalOpen(false);
+          return true;
+        }
+        if (isCustomExtensionModalOpen) {
+          setIsCustomExtensionModalOpen(false);
+          return true;
+        }
+        if (pipVideoId) {
+          setPipVideoId(null);
+          return true;
+        }
+        // If in fullscreen video, exit fullscreen cleanly without navigating back!
+        if (isWebFullscreen && webViewRef.current) {
+          webViewRef.current.injectJavaScript(`
+            (function() {
+              if (typeof window.__exitPlayerFullscreen === 'function') {
+                window.__exitPlayerFullscreen();
+              } else {
+                var exitBtn = document.querySelector('.ytp-fullscreen-button, button[aria-label*="Exit full screen" i], button[aria-label*="Exit fullscreen" i]');
+                if (exitBtn) {
+                  exitBtn.click();
+                } else if (document.exitFullscreen) {
+                  document.exitFullscreen().catch(function(){});
+                } else if (document.webkitExitFullscreen) {
+                  document.webkitExitFullscreen();
+                }
+              }
+            })();
+            true;
+          `);
+          setIsWebFullscreen(false);
+          if (isLandscape) {
+            userExitedFullscreenInLandscapeRef.current = true;
+          }
+          return true;
+        }
+        if (canGoBack && webViewRef.current) {
+          webViewRef.current.goBack();
+          return true;
+        }
+        return false;
+      };
+
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => subscription.remove();
+    }
+  }, [
+    canGoBack,
+    isWebFullscreen,
+    isSettingsModalOpen,
+    isSearchModalOpen,
+    isExtensionsModalOpen,
+    isCustomExtensionModalOpen,
+    pipVideoId,
+  ]);
+
+  const handleNavigate = (url: string) => {
+    triggerHaptic();
+
+    // If navigating to another webapp while a video was playing:
+    // Automatically pop the video into floating PiP mode so it keeps playing!
+    const activeVid = extractVideoId(currentUrl) || lastVideoIdRef.current;
+    const isOtherWebapp = !url.includes('youtube.com');
+    if (isOtherWebapp && activeVid && !pipVideoId) {
+      setPipVideoId(activeVid);
+    }
+
+    setCurrentUrl(url);
+    setActiveSourceUri(url);
+  };
+
+  const handleGoBack = () => {
+    triggerHaptic();
+    if (webViewRef.current) {
+      webViewRef.current.goBack();
+    }
+  };
+
+  const handleGoForward = () => {
+    triggerHaptic();
+    if (webViewRef.current) {
+      webViewRef.current.goForward();
+    }
+  };
+
+  const isReloadingRef = useRef(false);
+  const handleReload = () => {
+    triggerHaptic();
+    if (isReloadingRef.current) return;
+    isReloadingRef.current = true;
+
+    // Reset playback & fullscreen flags so dock/HUD restores cleanly
+    setIsVideoPlaying(false);
+    setIsWebFullscreen(false);
+    userExitedFullscreenInLandscapeRef.current = false;
+
+    setIsLoading(true);
+    setProgress(0.1);
+
+    if (webViewRef.current) {
+      webViewRef.current.reload();
+    }
+
+    setTimeout(() => {
+      isReloadingRef.current = false;
+    }, 1000);
+  };
+
+  const handleGoHome = () => {
+    triggerHaptic();
+    const targetUrl = isDesktopMode ? 'https://www.youtube.com' : 'https://m.youtube.com';
+    setCurrentUrl(targetUrl);
+    setActiveSourceUri(targetUrl);
+  };
+
+  const handleToggleDesktopMode = () => {
+    const nextDesktop = !isDesktopMode;
+    setIsDesktopMode(nextDesktop);
+    triggerHaptic();
+    const newUrl = nextDesktop
+      ? currentUrl.replace('m.youtube.com', 'www.youtube.com')
+      : currentUrl.replace('www.youtube.com', 'm.youtube.com');
+    setCurrentUrl(newUrl);
+    setActiveSourceUri(newUrl);
+  };
+
+  const handleToggleZenMode = () => {
+    const updatedExtensions = extensions.map((ext) =>
+      ext.id === 'youtube-distraction-free' ? { ...ext, enabled: !ext.enabled } : ext
+    );
+    toggleExtension('youtube-distraction-free');
+    triggerHaptic();
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(
+        ExtensionEngine.buildAfterContentLoadedScript(updatedExtensions, currentUrl, isDark)
+      );
+    }
+  };
+
+  const handleTogglePip = () => {
+    triggerHaptic();
+    if (pipVideoId) {
+      setPipVideoId(null);
+      return;
+    }
+    const vidId = extractVideoId(currentUrl) || lastVideoIdRef.current;
+    if (vidId) {
+      setPipVideoId(vidId);
+    } else {
+      setIsSearchModalOpen(true);
+    }
+  };
+
+  const handleExpandPip = () => {
+    if (pipVideoId) {
+      const watchUrl = `https://m.youtube.com/watch?v=${pipVideoId}`;
+      setPipVideoId(null);
+      handleNavigate(watchUrl);
+    }
+  };
+
+  if (statusNotice?.isBlocked) {
+    return (
+      <SafeAreaView
+        style={[
+          styles.container,
+          { backgroundColor: palette.background },
+        ]}
+      >
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <StatusNoticeView
+          title={statusNotice.title}
+          message={statusNotice.message}
+          actionText={statusNotice.actionText}
+          actionUrl={statusNotice.actionUrl}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  // Do not apply safe area insets in fullscreen or landscape modes (full edge-to-edge experience),
+  // but NEVER enter immersive mode when a modal is open or software keyboard is active (prevents SafeAreaView glitches)
+  const isAnyModalOpen =
+    isSettingsModalOpen ||
+    isSearchModalOpen ||
+    isExtensionsModalOpen ||
+    isCustomExtensionModalOpen;
+
+  const isImmersiveFullscreen =
+    (isWebFullscreen || isLandscape) && !isKeyboardVisible && !isAnyModalOpen;
+
+  return (
+    <SafeAreaView
+      style={[
+        styles.container,
+        { backgroundColor: palette.surface },
+      ]}
+      edges={isImmersiveFullscreen ? [] : ['top', 'left', 'right']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} hidden={isImmersiveFullscreen} />
+
+      {/* Loading Progress Bar */}
+      {isLoading && progress < 1 && (
+        <View
+          style={[
+            styles.progressBarContainer,
+            { backgroundColor: palette.surfacePressed },
+          ]}
+        >
+          <View
+            style={[
+              styles.progressBarFill,
+              {
+                width: `${progress * 100}%`,
+                backgroundColor: palette.accent,
+              },
+            ]}
+          />
+        </View>
+      )}
+
+      {/* Main WebView Container: Takes 100% full screen width and height */}
+      <View
+        style={[
+          styles.webViewContainer,
+          { backgroundColor: palette.background },
+        ]}
+      >
+        <WebView
+          ref={webViewRef}
+          source={webViewSource}
+          userAgent={effectiveUserAgent}
+          injectedJavaScriptBeforeContentLoaded={injectedStartScript}
+          injectedJavaScript={injectedEndScript}
+          onMessage={(event) => {
+            const rawData = event.nativeEvent.data;
+            const msg = ExtensionEngine.parseBridgeMessage(rawData);
+            if (msg) {
+              if (msg.extensionId === 'youtube-fullscreen' && msg.type === 'FULLSCREEN_CHANGE') {
+                const isFS = Boolean(msg.payload?.isFullscreen);
+                setIsWebFullscreen(isFS);
+                if (!isFS && isLandscape) {
+                  userExitedFullscreenInLandscapeRef.current = true;
+                }
+                return;
+              }
+              if (msg.extensionId === 'media-session') {
+                const p = (msg.payload || {}) as Record<string, unknown>;
+                if (typeof p.title === 'string' && p.title) mediaMetadataRef.current.title = p.title;
+                if (typeof p.artist === 'string' && p.artist) mediaMetadataRef.current.artist = p.artist;
+                if (typeof p.album === 'string' && p.album) mediaMetadataRef.current.album = p.album;
+                if (typeof p.thumbnailUrl === 'string' && p.thumbnailUrl) mediaMetadataRef.current.thumbnailUrl = p.thumbnailUrl;
+                if (typeof p.isPlaying === 'boolean') {
+                  mediaMetadataRef.current.isPlaying = p.isPlaying;
+                  setIsVideoPlaying(p.isPlaying);
+                }
+                if (typeof p.position === 'number') mediaMetadataRef.current.position = p.position;
+                if (typeof p.duration === 'number') mediaMetadataRef.current.duration = p.duration;
+                if (typeof p.speed === 'number') mediaMetadataRef.current.speed = p.speed;
+
+                if (Platform.OS === 'android' && NativeModules.MediaSessionModule?.updatePlayback) {
+                  NativeModules.MediaSessionModule.updatePlayback(mediaMetadataRef.current);
+                }
+                return;
+              }
+              handleBridgeMessage(msg);
+            }
+          }}
+          onNavigationStateChange={(navState) => {
+            setCanGoBack(navState.canGoBack);
+            setCanGoForward(navState.canGoForward);
+            if (navState.url) {
+              const prevUrl = currentUrl;
+              setCurrentUrl(navState.url);
+
+              const vid = extractVideoId(navState.url);
+              const isWatch = !!(
+                navState.url.includes('/watch') ||
+                navState.url.includes('/shorts') ||
+                navState.url.includes('/live') ||
+                vid
+              );
+
+              if (vid) {
+                if (vid !== lastVideoIdRef.current) {
+                  userExitedFullscreenInLandscapeRef.current = false;
+                }
+                lastVideoIdRef.current = vid;
+              } else if (!isWatch) {
+                // Leaving watch route to feed, search, or profile:
+                // Cleanly reset playing flag, fullscreen state, and active video reference
+                setIsVideoPlaying(false);
+                setIsWebFullscreen(false);
+                lastVideoIdRef.current = null;
+                userExitedFullscreenInLandscapeRef.current = false;
+              }
+            }
+          }}
+          onLoadStart={() => setIsLoading(true)}
+          onLoadEnd={() => {
+            setIsLoading(false);
+            setProgress(1);
+          }}
+          onLoadProgress={({ nativeEvent }) => {
+            setProgress(nativeEvent.progress);
+            if (nativeEvent.progress >= 1) {
+              setIsLoading(false);
+            }
+          }}
+          onError={() => {
+            setIsLoading(false);
+            setProgress(1);
+          }}
+          onHttpError={() => {
+            setIsLoading(false);
+            setProgress(1);
+          }}
+          allowsFullscreenVideo={true}
+          allowsInlineMediaPlayback={true}
+          mediaPlaybackRequiresUserAction={false}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          sharedCookiesEnabled={true}
+          thirdPartyCookiesEnabled={true}
+          cacheEnabled={true}
+          setSupportMultipleWindows={false}
+          textZoom={100}
+          scalesPageToFit={false}
+          androidLayerType="hardware"
+          nestedScrollEnabled={true}
+          overScrollMode="never"
+          mixedContentMode="always"
+          originWhitelist={['*']}
+          style={[styles.webView, { backgroundColor: palette.background }]}
+        />
+      </View>
+
+      {/* Floating Picture-in-Picture Miniplayer */}
+      {pipVideoId && (
+        <PipPlayer
+          videoId={pipVideoId}
+          onClose={() => setPipVideoId(null)}
+          onExpand={handleExpandPip}
+        />
+      )}
+
+      {/* Bottom Floating Navigation Dock: Back, Forward, Home, Reload, Settings */}
+      {!isLandscape && !isWebFullscreen && !isKeyboardVisible && (
+        <BottomDock
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          isLoading={isLoading}
+          onGoBack={handleGoBack}
+          onGoForward={handleGoForward}
+          onReload={handleReload}
+          onGoHome={handleGoHome}
+          onOpenSettings={() => setIsSettingsModalOpen(true)}
+          isVideoPlaying={isVideoPlaying}
+        />
+      )}
+
+      {/* Settings Modal (Desktop mode, Zen mode, Theme, PiP, WebApps Hub, Extensions Hub) */}
+      <SettingsModal
+        visible={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        isDesktopMode={isDesktopMode}
+        onToggleDesktopMode={handleToggleDesktopMode}
+        isZenActive={isZenActive}
+        onToggleZenMode={handleToggleZenMode}
+        isPipActive={!!pipVideoId}
+        onTogglePip={handleTogglePip}
+        onOpenExtensions={() => setIsExtensionsModalOpen(true)}
+        onOpenWebApps={() => setIsSearchModalOpen(true)}
+      />
+
+      {/* WebApps & Browser Hub Modal */}
+      <SearchModal
+        visible={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+        onNavigate={handleNavigate}
+        currentUrl={currentUrl}
+        hasActiveVideo={isWatchRoute && (isVideoPlaying || !!lastVideoIdRef.current)}
+      />
+
+      {/* Extensions Hub Modal */}
+      <ExtensionsModal
+        visible={isExtensionsModalOpen}
+        onClose={() => setIsExtensionsModalOpen(false)}
+        onOpenCreateCustom={() => {
+          setIsExtensionsModalOpen(false);
+          setIsCustomExtensionModalOpen(true);
+        }}
+      />
+
+      {/* Custom Extension Builder Modal */}
+      <CustomExtensionModal
+        visible={isCustomExtensionModalOpen}
+        onClose={() => setIsCustomExtensionModalOpen(false)}
+      />
+    </SafeAreaView>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <ThemeProvider>
+        <ExtensionProvider>
+          <MainApp />
+        </ExtensionProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  progressBarContainer: {
+    height: 3,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 1.5,
+  },
+  webViewContainer: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+  webView: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+});

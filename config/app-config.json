@@ -1,0 +1,14 @@
+{
+  "status": "active",
+  "minBuild": 36,
+  "minVersion": "1.7.2",
+  "notice": {
+    "enabled": false,
+    "force": false,
+    "title": "Update Available",
+    "message": "A new version of Vidwr is available. Please update to continue using the application.",
+    "actionText": "Download Update",
+    "actionUrl": "https://github.com/Saurabh-singhx/vidwr/releases"
+  },
+  "disabledExtensions": []
+}
